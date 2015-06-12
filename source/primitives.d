@@ -32,7 +32,7 @@ interface Stream {
 class BufStream: Stream {
 	private {
 		const char[] buf;
-		const char[] slice;
+		const(char)[] slice;
 		size_t offset;
 	}
 	override starts_with(const ref string prefix) {
