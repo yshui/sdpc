@@ -1,0 +1,9 @@
+{
+	"name": "dpc",
+	"targetType": "library",
+	"description": "D parser combinator",
+	"copyright": "Copyright © 2015, Yuxuan Shui",
+	"authors": ["Yuxuan Shui"],
+	"dependencies": {
+	}
+}
