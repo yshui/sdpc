@@ -1,30 +1,31 @@
-module primitives;
-import std.algorithms;
+module sdpc.primitives;
+import std.algorithm;
 import std.stdio;
 enum State {
 	OK,
 	Err
-};
+}
 struct ParseResult(T) {
-	enum State {
-		OK,
-		Err,
-	};
 	immutable {
 		State s;
-		T t;
 		size_t consumed;
 	}
 
-	@property T get_result() {
-		assert(s == State.OK);
-		return t;
+	static if (!is(T == void)) {
+		T t;
+		@property T get_result() {
+			assert(s == State.OK);
+			return t;
+		}
+		alias get_result this;
 	}
-	alias get_result this;
+	invariant {
+		assert(s == State.OK || consumed == 0);
+	}
 }
 interface Stream {
-	bool starts_with(const ref string prefix);
-	void advance(size_t bytes);
+	bool starts_with(const char[] prefix);
+	const(char)[] advance(size_t bytes);
 	void rewind(size_t bytes);
 	@property bool eof();
 }
@@ -35,24 +36,38 @@ class BufStream: Stream {
 		const(char)[] slice;
 		size_t offset;
 	}
-	override starts_with(const ref string prefix) {
+	override bool starts_with(const char[] prefix) {
+		import std.stdio;
 		if (prefix.length > slice.length)
 			return false;
-		return slice.startWith(prefix);
+		return slice.startsWith(prefix);
 	}
-	override void advance(size_t bytes) {
+	override const(char)[] advance(size_t bytes) {
 		assert(bytes <= slice.length);
+		const(char)[] ret = slice[0..bytes];
 		slice = slice[bytes..$];
 		offset += bytes;
+		return ret;
 	}
 	override void rewind(size_t bytes) {
 		assert(bytes <= offset);
 		offset -= bytes;
 		slice = buf[offset..$];
 	}
-	@property bool eof() {
+	@property override bool eof() {
 		return slice.length == 0;
 	}
+	this(char[] xbuf) {
+		buf = xbuf.dup;
+		slice = buf[];
+		offset = 0;
+	}
+	this(string str) {
+		buf = str.dup;
+		slice = buf[];
+		offset = 0;
+	}
+
 }
 
 /*

@@ -1,7 +1,7 @@
 {
-	"name": "dpc",
+	"name": "sdpc",
 	"targetType": "library",
-	"description": "D parser combinator",
+	"description": "Stupid D parser combinator",
 	"copyright": "Copyright © 2015, Yuxuan Shui",
 	"authors": ["Yuxuan Shui"],
 	"dependencies": {
