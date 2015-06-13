@@ -6,10 +6,8 @@ enum State {
 	Err
 }
 struct ParseResult(T) {
-	immutable {
-		State s;
-		size_t consumed;
-	}
+	State s;
+	size_t consumed;
 
 	static if (!is(T == void)) {
 		T t;
