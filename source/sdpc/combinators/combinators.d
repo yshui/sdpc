@@ -1,8 +1,8 @@
 module sdpc.combinators.combinators;
 import sdpc.primitives;
 import std.traits,
-       std.string;
-
+       std.string,
+       std.stdio;
 private template ElemType(T) {
 	static if (is(T == ParseResult!U, U))
 		alias ElemType = U;
@@ -114,20 +114,6 @@ ParseResult!(const(char)[]) token(string t)(Stream input) {
 	return RetTy(State.OK, 0, ret);
 }
 
-///Match a single digit, valid digits passed as template parameter
-auto number(alias digits = "0123456789")(Stream i) {
-	alias RetTy = ParseResult!int;
-	if (i.eof())
-		return RetTy(State.Err, 0, 0);
-	const(char)[] n = i.advance(1);
-	auto digi = cast(int)digits.indexOf(n[0]);
-	if (digi < 0) {
-		i.rewind(1);
-		return RetTy(State.Err, 0, 0);
-	}
-	return RetTy(State.OK, 1, digi);
-}
-
 unittest {
 	import std.stdio;
 	import std.array;
@@ -147,13 +133,4 @@ unittest {
 	auto r3 = abcdparser(i);
 	assert(r3.s == State.OK); //Parse is OK because 4 char are consumed
 	assert(!i.eof()); //But the end-of-buffer is not reached
-
-	int number_combine(int a, int b) {
-		return a*10+b;
-	}
-	i = new BufStream("12354");
-	alias numparser = chain!(number, number_combine, nop);
-	auto r4 = numparser(i);
-	assert(r4.s == State.OK);
-	assert(r4 == 12354, to!string(r4));
 }
