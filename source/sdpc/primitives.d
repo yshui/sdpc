@@ -11,11 +11,11 @@ struct ParseResult(T) {
 
 	static if (!is(T == void)) {
 		T t;
-		@property T get_result() {
+		@property T result() {
 			assert(s == State.OK);
 			return t;
 		}
-		alias get_result this;
+		alias result this;
 	}
 	invariant {
 		assert(s == State.OK || consumed == 0);

@@ -55,10 +55,10 @@ auto identifier(Stream i) {
 	auto ret = letter!(alphabet~"_")(i);
 	if (ret.s != State.OK)
 		return RetTy(State.Err, 0, null);
-	string str = to!string(ret.get_result);
+	string str = to!string(ret.result);
 	auto ret2 = word!(alphabet~"_"~digits)(i);
 	if (ret2.s == State.OK)
-		str ~= ret2.get_result;
+		str ~= ret2;
 	return RetTy(State.OK, ret.consumed+ret2.consumed, str);
 }
 
