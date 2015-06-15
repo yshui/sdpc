@@ -148,6 +148,12 @@ auto seq(T...)(Stream i) {
 	return RetTy(State.OK, consumed, res);
 }
 
+auto optional(alias p)(Stream i) {
+	auto r = p(i);
+	r.s = State.OK;
+	return r;
+}
+
 ///Match a string, return the matched string
 ParseResult!string token(string t)(Stream input) {
 	alias RetTy = ParseResult!string;
@@ -195,4 +201,9 @@ unittest {
 	auto r5 = seq!(token!"e")(i); //test seq with single argument.
 	assert(r5.s == State.OK, to!string(r5.s));
 	assert(r5.result == "e");
+
+	i.rewind(1);
+	auto r6 = optional!(token!"a")(i);
+	assert(r6.s == State.OK);
+	assert(r6.t is null);
 }
