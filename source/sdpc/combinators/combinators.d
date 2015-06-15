@@ -118,6 +118,11 @@ ParseResult!string token(string t)(Stream input) {
 	return RetTy(State.OK, t.length, ret);
 }
 
+ParseResult!void skip(alias p)(Stream i) {
+	auto r = many!(p, true)(i);
+	return ParseResult!void(State.OK, r.consumed);
+}
+
 unittest {
 	import std.stdio;
 	import std.array;

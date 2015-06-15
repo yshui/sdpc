@@ -62,6 +62,8 @@ auto identifier(Stream i) {
 	return RetTy(State.OK, ret.consumed+ret2.consumed, str);
 }
 
+alias skip_whitespace = skip!(choice!(token!" ", token!"\n", token!"\t"));
+
 string str_concat(string a, string b) {
 	return a ~ b;
 }
