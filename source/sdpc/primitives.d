@@ -65,6 +65,10 @@ struct ParseResult(T...) {
 		}
 	}
 
+	@property nothrow pure @nogc ok() {
+		return s == State.OK;
+	}
+
 	invariant {
 		assert(s == State.OK || consumed == 0);
 	}
