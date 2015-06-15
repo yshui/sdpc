@@ -1,22 +1,70 @@
 module sdpc.primitives;
-import std.algorithm;
-import std.stdio;
+import std.algorithm,
+       std.stdio,
+       std.typetuple;
 enum State {
 	OK,
 	Err
 }
-struct ParseResult(T) {
+
+private template isVoid(T) {
+	static if (is(T == void))
+		enum bool isVoid = true;
+	else
+		enum bool isVoid = false;
+}
+
+template ElemType(T) {
+	static if (is(T == ParseResult!U, U))
+		alias ElemType = U;
+	else
+		static assert(false);
+}
+
+private template stripVoid(T...) {
+	static if (T.length == 0)
+		alias stripVoid = TypeTuple!();
+	else static if (is(T[0] == void))
+		alias stripVoid = stripVoid!(T[1..$]);
+	else
+		alias stripVoid = TypeTuple!(T[0], stripVoid!(T[1..$]));
+}
+
+template ElemTypes(T...) {
+	alias ElemTypes = staticMap!(ElemType, T);
+}
+
+template ElemTypesNoVoid(T...) {
+	alias ElemTypesNoVoid = stripVoid!(ElemTypes!T);
+}
+
+struct ParseResult(T...) {
 	State s;
 	size_t consumed;
 
-	static if (!is(T == void)) {
-		T t;
-		@property T result() {
-			assert(s == State.OK);
-			return t;
+	static if (T.length == 0 || allSatisfy!(isVoid, T))
+		alias T2 = void;
+	else static if (T.length == 1)
+		alias T2 = T[0];
+	else
+		alias T2 = T;
+
+	static if (!is(T2 == void)) {
+		T2 t;
+		static if (T.length == 1) {
+			@property T2 result() {
+				assert(s == State.OK);
+				return t;
+			}
+			alias result this;
+		} else {
+			auto result(int id)() {
+				assert(s == State.OK);
+				return t[id];
+			}
 		}
-		alias result this;
 	}
+
 	invariant {
 		assert(s == State.OK || consumed == 0);
 	}
@@ -51,7 +99,8 @@ class BufStream: Stream {
 		return ret;
 	}
 	override void rewind(size_t bytes) {
-		assert(bytes <= offset);
+		import std.conv;
+		assert(bytes <= offset, to!string(bytes) ~ "," ~ to!string(offset));
 		offset -= bytes;
 		slice = buf[offset..$];
 	}

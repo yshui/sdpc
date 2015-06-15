@@ -85,5 +85,5 @@ unittest {
 	auto r2 = identifier(i);
 	assert(r2.s == State.OK);
 	assert(i.eof());
-	writeln(r2);
+	assert(r2 == "_asd1234a");
 }

@@ -2,13 +2,8 @@ module sdpc.combinators.combinators;
 import sdpc.primitives;
 import std.traits,
        std.string,
-       std.stdio;
-private template ElemType(T) {
-	static if (is(T == ParseResult!U, U))
-		alias ElemType = U;
-	else
-		static assert(false);
-}
+       std.stdio,
+       std.typetuple;
 
 ///Match pattern `begin func end', return the result of func
 auto between(alias begin, alias func, alias end)(Stream input) {
@@ -109,6 +104,50 @@ auto nop(Stream i) {
 	return ParseResult!void(State.OK, 0);
 }
 
+private class ParserID(alias func, int id) { }
+
+private template genParserID(int start, T...) {
+	static if (T.length == 0)
+		alias genParserID = TypeTuple!();
+	else {
+		private alias now = ParserID!(T[0], start);
+		static if (is(ReturnType!(T[0]) == void))
+			private enum int next = start;
+		else
+			private enum int next = start+1;
+		alias genParserID = TypeTuple!(now, genParserID!(next, T[1..$]));
+	}
+}
+
+/**
+  Matching using a sequence of parsers, beware that result can only be
+  indexed with number readable at compile time.
+
+  Also none of the parsers used in seq can return a tuple of results. Otherwise
+  it won't compile.
+*/
+auto seq(T...)(Stream i) {
+	alias ElemTys = ElemTypesNoVoid!(staticMap!(ReturnType, T));
+	alias RetTy = ParseResult!ElemTys;
+	alias PID = genParserID!(0, T);
+	ElemTys res = void;
+	size_t consumed = 0;
+	foreach(pid; PID) {
+		static if (is(pid == ParserID!(p, id), alias p, int id)) {
+			auto ret = p(i);
+			consumed += ret.consumed;
+			if (ret.s != State.OK) {
+				i.rewind(consumed);
+				return RetTy(State.Err, 0, ElemTys.init);
+			}
+			static if (!is(typeof(ret) == ParseResult!void))
+				res[id] = ret.result;
+		} else
+			static assert(false, p);
+	}
+	return RetTy(State.OK, consumed, res);
+}
+
 ///Match a string, return the matched string
 ParseResult!string token(string t)(Stream input) {
 	alias RetTy = ParseResult!string;
@@ -142,4 +181,18 @@ unittest {
 	auto r3 = abcdparser(i);
 	assert(r3.s == State.OK); //Parse is OK because 4 char are consumed
 	assert(!i.eof()); //But the end-of-buffer is not reached
+
+	i.rewind(4);
+	auto r4 = seq!(token!"a", token!"b", token!"c", token!"d", token!"e")(i);
+	assert(r4.s == State.OK);
+	assert(r4.result!0 == "a");
+	assert(r4.result!1 == "b");
+	assert(r4.result!2 == "c");
+	assert(r4.result!3 == "d");
+	assert(r4.result!4 == "e");
+
+	i.rewind(1);
+	auto r5 = seq!(token!"e")(i); //test seq with single argument.
+	assert(r5.s == State.OK, to!string(r5.s));
+	assert(r5.result == "e");
 }
