@@ -13,11 +13,12 @@ private template ElemType(T) {
 ///Match pattern `begin func end', return the result of func
 auto between(alias begin, alias func, alias end)(Stream input) {
 	alias RetTy = ReturnType!func;
+	alias ElemTy = ElemType!RetTy;
 	static assert(is(RetTy == ParseResult!U, U));
 	auto begin_ret = begin(input);
 	size_t consumed = begin_ret.consumed;
 	if (begin_ret.s != State.OK)
-		return begin_ret;
+		return RetTy(State.Err, 0, ElemTy.init);
 	auto ret = func(input);
 	if (ret.s != State.OK) {
 		input.rewind(consumed);
@@ -27,7 +28,7 @@ auto between(alias begin, alias func, alias end)(Stream input) {
 	auto end_ret = end(input);
 	if (end_ret.s != State.OK) {
 		input.rewind(consumed);
-		return end_ret;
+		return RetTy(State.Err, 0, ElemTy.init);
 	}
 	return RetTy(State.OK, end_ret.consumed+consumed, ret);
 }
@@ -65,7 +66,10 @@ auto chain(alias p, alias op, alias delim)(Stream input) {
 			input.rewind(dret.consumed);
 			return RetTy(State.OK, consumed, res);
 		}
-		res = op(res, pret);
+		static if (is(ReturnType!delim == ParseResult!void))
+			res = op(res, pret.result);
+		else
+			res = op(res, dret.result, pret.result);
 		ret = pret;
 		consumed += dret.consumed+pret.consumed;
 	}
@@ -106,12 +110,12 @@ auto nop(Stream i) {
 }
 
 ///Match a string, return the matched string
-ParseResult!(const(char)[]) token(string t)(Stream input) {
-	alias RetTy = ParseResult!(const(char)[]);
+ParseResult!string token(string t)(Stream input) {
+	alias RetTy = ParseResult!string;
 	if (!input.starts_with(t))
 		return RetTy(State.Err, 0, null);
-	const(char)[] ret = input.advance(t.length);
-	return RetTy(State.OK, 0, ret);
+	string ret = input.advance(t.length);
+	return RetTy(State.OK, t.length, ret);
 }
 
 unittest {

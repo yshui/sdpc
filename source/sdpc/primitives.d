@@ -23,16 +23,19 @@ struct ParseResult(T) {
 }
 interface Stream {
 	bool starts_with(const char[] prefix);
-	const(char)[] advance(size_t bytes);
+	string advance(size_t bytes);
 	void rewind(size_t bytes);
 	@property bool eof();
 }
 
 class BufStream: Stream {
 	private {
-		const char[] buf;
-		const(char)[] slice;
+		immutable(char)[] buf;
+		immutable(char)[] slice;
 		size_t offset;
+	}
+	@property pure nothrow @nogc string head() {
+		return slice;
 	}
 	override bool starts_with(const char[] prefix) {
 		import std.stdio;
@@ -40,9 +43,9 @@ class BufStream: Stream {
 			return false;
 		return slice.startsWith(prefix);
 	}
-	override const(char)[] advance(size_t bytes) {
+	override string advance(size_t bytes) {
 		assert(bytes <= slice.length);
-		const(char)[] ret = slice[0..bytes];
+		auto ret = slice[0..bytes];
 		slice = slice[bytes..$];
 		offset += bytes;
 		return ret;
@@ -55,13 +58,8 @@ class BufStream: Stream {
 	@property override bool eof() {
 		return slice.length == 0;
 	}
-	this(char[] xbuf) {
-		buf = xbuf.dup;
-		slice = buf[];
-		offset = 0;
-	}
 	this(string str) {
-		buf = str.dup;
+		buf = str;
 		slice = buf[];
 		offset = 0;
 	}
