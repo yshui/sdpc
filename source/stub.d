@@ -1,2 +1,0 @@
-import sdpc;
-void main() {}

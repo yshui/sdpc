@@ -148,9 +148,33 @@ auto seq(T...)(Stream i) {
 	return RetTy(State.OK, consumed, res);
 }
 
+///optionally matches p.
 auto optional(alias p)(Stream i) {
 	auto r = p(i);
 	r.s = State.OK;
+	return r;
+}
+
+///lookahead
+auto lookahead(alias p, alias u, bool negative = false)(Stream i) {
+	auto r = p(i);
+	alias RetTy = typeof(r);
+	alias ElemTy = ElemType!RetTy;
+	if (!r.ok)
+		return r;
+
+	auto r2 = u(i);
+	i.rewind(r2.consumed);
+
+	bool pass = r2.ok;
+
+	static if (negative)
+		pass = !pass;
+
+	if (!pass) {
+		i.rewind(r.consumed);
+		return RetTy(State.Err, 0, ElemTy.init);
+	}
 	return r;
 }
 
