@@ -111,7 +111,7 @@ private template genParserID(int start, T...) {
 		alias genParserID = TypeTuple!();
 	else {
 		private alias now = ParserID!(T[0], start);
-		static if (is(ReturnType!(T[0]) == void))
+		static if (is(ReturnType!(T[0]) == ParseResult!void))
 			private enum int next = start;
 		else
 			private enum int next = start+1;
