@@ -48,7 +48,6 @@ struct ParseResult(T...) {
 		alias T2 = T[0];
 	else
 		alias T2 = T;
-
 	static if (!is(T2 == void)) {
 		T2 t;
 		static if (T.length == 1) {
@@ -73,6 +72,23 @@ struct ParseResult(T...) {
 		assert(s == State.OK || consumed == 0);
 	}
 }
+
+T ok_result(T: ParseResult!U, U)(U r, size_t consumed) {
+	return T(State.OK, consumed, r);
+}
+
+ParseResult!T ok_result(T)(T r, size_t consumed) if (!is(T == ParseResult!U, U)) {
+	return ParseResult!T(State.OK, consumed, r);
+}
+
+T err_result(T: ParseResult!U, U)() {
+	return T(State.Err, 0, U.init);
+}
+
+ParseResult!T err_result(T)() if (!is(T == ParseResult!U, U)) {
+	return ParseResult!T(State.Err, 0, T.init);
+}
+
 interface Stream {
 	bool starts_with(const char[] prefix);
 	string advance(size_t bytes);
