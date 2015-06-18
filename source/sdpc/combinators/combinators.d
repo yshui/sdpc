@@ -13,7 +13,7 @@ auto between(alias begin, alias func, alias end)(Stream input) {
 	auto begin_ret = begin(input);
 	size_t consumed = begin_ret.consumed;
 	if (begin_ret.s != State.OK)
-		return RetTy(State.Err, 0, ElemTy.init);
+		return err_result!ElemTy();
 	auto ret = func(input);
 	if (ret.s != State.OK) {
 		input.rewind(consumed);
@@ -23,20 +23,21 @@ auto between(alias begin, alias func, alias end)(Stream input) {
 	auto end_ret = end(input);
 	if (end_ret.s != State.OK) {
 		input.rewind(consumed);
-		return RetTy(State.Err, 0, ElemTy.init);
+		return err_result!ElemTy();
 	}
-	return RetTy(State.OK, end_ret.consumed+consumed, ret);
+	ret.consumed = end_ret.consumed+consumed;
+	return ret;
 }
 
 ///Match any of the given pattern, stop when first match is found
 auto choice(T...)(Stream input) {
-	alias RetTy = ReturnType!(T[0]);
+	alias ElemTy = ElemType!(ReturnType!(T[0]));
 	foreach(p; T) {
 		auto ret = p(input);
 		if (ret.s == State.OK)
 			return ret;
 	}
-	return RetTy(State.Err, 0, null);
+	return err_result!ElemTy();
 }
 
 /**
@@ -46,7 +47,7 @@ auto choice(T...)(Stream input) {
 */
 auto chain(alias p, alias op, alias delim)(Stream input) {
 	auto ret = p(input);
-	alias RetTy = ParseResult!(ReturnType!op);
+	alias ElemTy = ReturnType!op;
 	if (ret.s != State.OK)
 		return ret;
 	ElemType!(typeof(ret)) res = ret;
@@ -59,7 +60,7 @@ auto chain(alias p, alias op, alias delim)(Stream input) {
 		auto pret = p(input);
 		if (pret.s != State.OK) {
 			input.rewind(dret.consumed);
-			return RetTy(State.OK, consumed, res);
+			return ok_result!ElemTy(res, consumed);
 		}
 		static if (is(ReturnType!delim == ParseResult!void))
 			res = op(res, pret.result);
@@ -68,7 +69,7 @@ auto chain(alias p, alias op, alias delim)(Stream input) {
 		ret = pret;
 		consumed += dret.consumed+pret.consumed;
 	}
-	return RetTy(State.OK, consumed, res);
+	return ok_result!ElemTy(res, consumed);
 }
 
 /**
@@ -76,26 +77,31 @@ auto chain(alias p, alias op, alias delim)(Stream input) {
 
   Return array [func, func, ...]
 */
-template many(alias func, bool allow_none = false) {
-	alias RetTy = ReturnType!func;
-	static if (is(RetTy == ParseResult!U, U))
-		alias RetElem = U;
-	alias ARetTy = ParseResult!(RetElem[]);
-	auto many(Stream input) {
-		RetElem[] res;
-		size_t consumed = 0;
-		while(true) {
-			auto ret = func(input);
-			if (ret.s != State.OK) {
-				static if (allow_none)
-					return ARetTy(State.OK, consumed, res);
-				else
-					return ARetTy(res.length ? State.OK : State.Err,
-						     consumed, res);
-			}
-			consumed += ret.consumed;
-			res ~= [ret];
+auto many(alias func, bool allow_none = false)(Stream i) {
+	alias ElemTy = ElemType!(ReturnType!func);
+	static if (is(ElemTy == void)) {
+		alias ARetTy = ParseResult!void;
+		size_t count = 0;
+	} else {
+		alias ARetTy = ParseResult!(ElemTy[]);
+		ElemTy[] res;
+	}
+	size_t consumed = 0;
+	while(true) {
+		auto ret = func(i);
+		if (ret.s != State.OK) {
+			static if (is(ElemTy == void))
+				return ARetTy((count || allow_none) ?
+				               State.OK : State.Err, consumed);
+			else
+				return ARetTy((res.length || allow_none) ?
+				              State.OK : State.Err, consumed, res);
 		}
+		consumed += ret.consumed;
+		static if (!is(ElemTy == void))
+			res ~= [ret];
+		else
+			count++;
 	}
 }
 
@@ -173,7 +179,7 @@ auto lookahead(alias p, alias u, bool negative = false)(Stream i) {
 
 	if (!pass) {
 		i.rewind(r.consumed);
-		return RetTy(State.Err, 0, ElemTy.init);
+		return err_result!ElemTy();
 	}
 	return r;
 }
@@ -201,11 +207,10 @@ auto lookbehind(alias u, alias p, bool negative = false)(Stream i) {
 
 ///Match a string, return the matched string
 ParseResult!string token(string t)(Stream input) {
-	alias RetTy = ParseResult!string;
 	if (!input.starts_with(t))
-		return RetTy(State.Err, 0, null);
+		return err_result!string();
 	string ret = input.advance(t.length);
-	return RetTy(State.OK, t.length, ret);
+	return ok_result!string(ret, t.length);
 }
 
 ParseResult!void skip(alias p)(Stream i) {

@@ -83,11 +83,17 @@ ParseResult!T ok_result(T)(T r, size_t consumed) if (!is(T == ParseResult!U, U))
 }
 
 T err_result(T: ParseResult!U, U)() {
-	return T(State.Err, 0, U.init);
+	static if (is(U == void))
+		return T(State.Err, 0);
+	else
+		return T(State.Err, 0, U.init);
 }
 
 ParseResult!T err_result(T)() if (!is(T == ParseResult!U, U)) {
-	return ParseResult!T(State.Err, 0, T.init);
+	static if (is(T == void))
+		return ParseResult!T(State.Err, 0);
+	else
+		return ParseResult!T(State.Err, 0, T.init);
 }
 
 ParseResult!T cast_result(T, alias func)(Stream i) if (is(ElemType!(ReturnType!func): T)) {
