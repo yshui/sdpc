@@ -178,6 +178,27 @@ auto lookahead(alias p, alias u, bool negative = false)(Stream i) {
 	return r;
 }
 
+///This is not regex 'lookbehind'. This combinator first try to match u,
+///and continue only is u matches (or not, if negative == true)
+///Except u consumes nothing.
+auto lookbehind(alias u, alias p, bool negative = false)(Stream i) {
+	alias RetTy = ReturnType!p;
+	alias ElemTy = ElemType!RetTy;
+	auto r = u(i);
+	i.rewind(r.consumed);
+
+	static if (negative) {
+		if (r.ok)
+			return err_result!ElemTy();
+	} else {
+		if (!r.ok)
+			return err_result!ElemTy();
+	}
+
+	auto r2 = p(i);
+	return r;
+}
+
 ///Match a string, return the matched string
 ParseResult!string token(string t)(Stream input) {
 	alias RetTy = ParseResult!string;
