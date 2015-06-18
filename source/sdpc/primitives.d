@@ -1,7 +1,8 @@
 module sdpc.primitives;
 import std.algorithm,
        std.stdio,
-       std.typetuple;
+       std.typetuple,
+       std.traits;
 enum State {
 	OK,
 	Err
@@ -87,6 +88,13 @@ T err_result(T: ParseResult!U, U)() {
 
 ParseResult!T err_result(T)() if (!is(T == ParseResult!U, U)) {
 	return ParseResult!T(State.Err, 0, T.init);
+}
+
+ParseResult!T cast_result(T, alias func)(Stream i) if (is(ElemType!(ReturnType!func): T)) {
+	auto r = func(i);
+	if (r.ok)
+		return err_result!T();
+	return ok_result(cast(T)r.result, r.consumed);
 }
 
 interface Stream {
