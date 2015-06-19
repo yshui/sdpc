@@ -5,7 +5,7 @@ import std.traits,
        std.stdio,
        std.typetuple;
 
-///Match pattern `begin func end', return the result of func
+///Match pattern `begin func end`, return the result of func.
 auto between(alias begin, alias func, alias end)(Stream input) {
 	alias RetTy = ReturnType!func;
 	alias ElemTy = ElemType!RetTy;
@@ -29,7 +29,8 @@ auto between(alias begin, alias func, alias end)(Stream input) {
 	return ret;
 }
 
-///Match any of the given pattern, stop when first match is found
+///Match any of the given pattern, stop when first match is found. All parsers
+///must return the same type.
 auto choice(T...)(Stream input) {
 	alias ElemTy = ElemType!(ReturnType!(T[0]));
 	foreach(p; T) {
@@ -41,9 +42,9 @@ auto choice(T...)(Stream input) {
 }
 
 /**
-  Match pattern `p delim p delim p ... p delim p'
+  Match pattern `p delim p delim p ... p delim p`
 
-  Return op(op(op(...op(p, p), p), p)....)
+  Return the result of left-associative applying `op` on the result of `p`
 */
 auto chain(alias p, alias op, alias delim)(Stream input) {
 	auto ret = p(input);
@@ -73,9 +74,9 @@ auto chain(alias p, alias op, alias delim)(Stream input) {
 }
 
 /**
-  Match `func*' or `func+'
+  Match `func*` or `func+`
 
-  Return array [func, func, ...]
+  Return array of func's result
 */
 auto many(alias func, bool allow_none = false)(Stream i) {
 	alias ElemTy = ElemType!(ReturnType!func);
@@ -127,7 +128,7 @@ private template genParserID(int start, T...) {
 
 /**
   Matching using a sequence of parsers, beware that result can only be
-  indexed with number readable at compile time.
+  indexed with number readable at compile time, like this: `ret.resutl!0`.
 
   Also none of the parsers used in seq can return a tuple of results. Otherwise
   it won't compile.
@@ -184,10 +185,9 @@ auto lookahead(alias p, alias u, bool negative = false)(Stream i) {
 	return r;
 }
 
-///This is not regex 'lookbehind'. This combinator first try to match u,
-///and continue only is u matches (or not, if negative == true)
-///Except u consumes nothing.
-auto lookbehind(alias u, alias p, bool negative = false)(Stream i) {
+///This combinator first try to match u without consuming anything,
+///and continue only if u matches (or not, if negative == true).
+auto when(alias u, alias p, bool negative = false)(Stream i) {
 	alias RetTy = ReturnType!p;
 	alias ElemTy = ElemType!RetTy;
 	auto r = u(i);
@@ -213,11 +213,13 @@ ParseResult!string token(string t)(Stream input) {
 	return ok_result!string(ret, t.length);
 }
 
+///Skip `p` zero or more times
 ParseResult!void skip(alias p)(Stream i) {
 	auto r = many!(p, true)(i);
 	return ParseResult!void(State.OK, r.consumed);
 }
 
+///
 unittest {
 	import std.stdio;
 	import std.array;
