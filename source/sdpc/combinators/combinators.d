@@ -155,6 +155,17 @@ auto seq(T...)(Stream i) {
 	return RetTy(State.OK, consumed, res);
 }
 
+auto seq2(alias op, T...)(Stream i) {
+	auto r = seq!T(i);
+	if (!r.ok)
+		return err_result!(ReturnType!op)();
+	alias ElemTy = ElemType!(typeof(r));
+	auto ret = op(r.result!0);
+	foreach(id, e; ElemTy[1..$])
+		ret = op(ret, r.result!(id+1));
+	return ok_result(ret, r.consumed);
+}
+
 ///optionally matches p.
 auto optional(alias p)(Stream i) {
 	auto r = p(i);
@@ -253,6 +264,12 @@ unittest {
 	auto r5 = seq!(token!"e")(i); //test seq with single argument.
 	assert(r5.s == State.OK, to!string(r5.s));
 	assert(r5.result == "e");
+
+	i.rewind(2);
+	auto r7 = seq2!(function (string a, string b = "") { return a ~ b; },
+			token!"d", token!"e")(i); //test seq with single argument.
+	assert(r7.ok);
+	assert(r7.result == "de");
 
 	i.rewind(1);
 	auto r6 = optional!(token!"a")(i);

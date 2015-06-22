@@ -16,9 +16,12 @@ private template isVoid(T) {
 }
 
 template ElemType(T) {
-	static if (is(T == ParseResult!U, U))
-		alias ElemType = U;
-	else
+	static if (is(T == ParseResult!U, U...)) {
+		static if (U.length == 1)
+			alias ElemType = U[0];
+		else
+			alias ElemType = U;
+	} else
 		static assert(false);
 }
 
@@ -78,7 +81,7 @@ T ok_result(T: ParseResult!U, U)(U r, size_t consumed) {
 	return T(State.OK, consumed, r);
 }
 
-ParseResult!T ok_result(T)(T r, size_t consumed) if (!is(T == ParseResult!U, U)) {
+ParseResult!T ok_result(T)(T r, size_t consumed) {
 	return ParseResult!T(State.OK, consumed, r);
 }
 
