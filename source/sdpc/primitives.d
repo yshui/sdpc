@@ -101,7 +101,7 @@ ParseResult!T err_result(T)() if (!is(T == ParseResult!U, U)) {
 
 ParseResult!T cast_result(T, alias func)(Stream i) if (is(ElemType!(ReturnType!func): T)) {
 	auto r = func(i);
-	if (r.ok)
+	if (!r.ok)
 		return err_result!T();
 	return ok_result(cast(T)r.result, r.consumed);
 }
@@ -114,6 +114,7 @@ interface Stream {
 }
 
 class BufStream: Stream {
+	import std.stdio;
 	private {
 		immutable(char)[] buf;
 		immutable(char)[] slice;
