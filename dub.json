@@ -4,7 +4,7 @@
 	"description": "Stupid D parser combinator",
 	"copyright": "Copyright © 2015, Yuxuan Shui",
 	"authors": ["Yuxuan Shui"],
-	"license" : "MPL 2.0",
+	"license" : "MPL-2.0",
 	"dependencies": {
 		"tested": "*"
 	}
