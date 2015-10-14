@@ -239,7 +239,7 @@ ParseResult!void lookahead(alias u, bool negative = false)(Stream i) {
 		r.r.name = "lookahead";
 		return err_result!void(r.r);
 	}
-	return ok_result!void(0, r.r);
+	return ParseResult!void(Result.OK, 0, r.r);
 }
 
 ///This combinator first try to match u without consuming anything,
