@@ -231,39 +231,15 @@ auto optional(alias p)(Stream i) {
 }
 
 ///lookahead
-auto lookahead(alias p, alias u, bool negative = false)(Stream i) {
+ParseResult!void lookahead(alias u, bool negative = false)(Stream i) {
 	i.push();
-
-	auto r = p(i);
-	alias RetTy = typeof(r);
-	alias ElemTy = ElemType!RetTy;
-	if (!r.ok) {
-		r.r.name = "lookahead";
-		i.pop();
-		return err_result!ElemTy(r.r);
-	}
-
-	i.push();
-	auto r2 = u(i);
+	auto r = u(i);
 	i.pop();
-
-	bool pass = r2.ok;
-
-	static if (negative)
-		pass = !pass;
-
-	if (!pass) {
-		auto re = Reason(i, "lookahead");
-		i.pop();
-		if (r2.ok) {
-			r2.r.state = "succeeded";
-			r2.r.msg = "which is not expected";
-		}
-		re.dep ~= r2.r;
-		return err_result!ElemTy(re);
+	if ((!r.ok&&!negative) || (r.ok&&negative)) {
+		r.r.name = "lookahead";
+		return err_result!void(r.r);
 	}
-	i.drop();
-	return r;
+	return ok_result!void(0, r.r);
 }
 
 ///This combinator first try to match u without consuming anything,
