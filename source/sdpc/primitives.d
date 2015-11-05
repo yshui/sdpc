@@ -14,6 +14,10 @@ private template isVoid(T) {
 	else
 		enum bool isVoid = false;
 }
+template ParserReturnType(alias fun, R) if (isStream!R) {
+	private R r = R.init;
+	alias ParserReturnType = typeof(fun(r));
+}
 
 template ElemType(T) {
 	static if (is(T == ParseResult!U, U...)) {
@@ -50,7 +54,7 @@ struct Reason {
 	string state;
 	@disable this();
 @safe :
-	this(Stream i, string xname) {
+	this(R)(R i, string xname) if (isStream!R) {
 		i.get_pos(line, col);
 		state = "failed";
 		name = xname;
@@ -164,8 +168,8 @@ struct ParseResult(T...) {
 			return ParseResult!T(Result.Err, 0, r, T.init);
 	}
 
-	ParseResult!T cast_result(T, alias func)(Stream i)
-	    if (is(ElemType!(ReturnType!func): T)) {
+	ParseResult!T cast_result(T, alias func, R)(ref R i)
+	    if (is(ElemType!(ParserReturnType!(func, R)): T)) {
 		auto r = func(i);
 		if (!r.ok)
 			return err_result!T(r.r);
@@ -173,8 +177,8 @@ struct ParseResult(T...) {
 	}
 
 	///Cast single element to array
-	ParseResult!T cast_result(T: U[], alias func, U)(Stream i)
-	    if (is(ElemType!(ReturnType!func): U)) {
+	ParseResult!T cast_result(T: U[], alias func, U, R)(ref R i)
+	    if (is(ElemType!(ParserReturnType!(func, R)): U)) {
 		auto r = func(i);
 		if (!r.ok)
 			return err_result!T(r.r);
@@ -182,20 +186,25 @@ struct ParseResult(T...) {
 	}
 }
 
-interface Stream {
-@safe :
-	bool starts_with(const char[] prefix);
-	string advance(size_t bytes);
-	void push(string f=__FUNCTION__);
-	void pop(string f=__FUNCTION__);
-	void drop(string f=__FUNCTION__);
-	void revert();
-	void get_pos(out int line, out int col);
-	@property bool eof();
-	@property pure nothrow @nogc string head();
+template isStream(R) {
+	enum bool isStream = is(typeof(
+		() {
+			R r = R.init;
+			r.pop();
+			r.push();
+			r.drop();
+			r.revert();
+			int l, c;
+			r.get_pos(l, c);
+			if (r.eof() || r.starts_with("")) {}
+			string tmp = r.advance(1);
+			string h = r.head();
+		}
+	));
 }
 
-class BufStream: Stream {
+struct BufStream {
+@safe :
 	import std.stdio;
 	struct Pos {
 		string pos;
@@ -205,11 +214,10 @@ class BufStream: Stream {
 		Pos now;
 		Pos[] stack;
 	}
-	@safe this(string str) {
+	this(string str) {
 		now.pos = str;
 		now.line = now.col = 1;
 	}
-override :
 	@property pure nothrow @nogc string head() {
 		return now.pos;
 	}

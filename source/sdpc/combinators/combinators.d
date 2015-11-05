@@ -7,9 +7,10 @@ import std.traits,
 
 @safe :
 ///Match pattern `begin func end`, return the result of func.
-auto between(alias begin, alias func, alias end)(Stream i) {
-	alias RetTy = ReturnType!func;
+template between(alias begin, alias func, alias end) { auto between(R)(ref R i) if (isStream!R) {
+	alias RetTy = ParserReturnType!(func, R);
 	alias ElemTy = ElemType!RetTy;
+	pragma(msg, RetTy);
 	static assert(is(RetTy == ParseResult!U, U));
 	i.push();
 	auto begin_ret = begin(i);
@@ -43,12 +44,12 @@ auto between(alias begin, alias func, alias end)(Stream i) {
 	ret.consumed = end_ret.consumed+consumed;
 	i.drop();
 	return ret;
-}
+}}
 
 ///Match any of the given pattern, stop when first match is found. All parsers
 ///must return the same type.
-auto choice(T...)(Stream i) {
-	alias ElemTy = ElemType!(ReturnType!(T[0]));
+template choice(T...) { auto choice(R)(ref R i) if (isStream!R) {
+	alias ElemTy = ElemType!(ParserReturnType!(T[0], R));
 	auto re = Reason(i, "choice");
 	Reason last = Reason(i, "tmp");
 	foreach(p; T) {
@@ -62,14 +63,14 @@ auto choice(T...)(Stream i) {
 	re.line = last.line;
 	re.col = last.col;
 	return err_result!ElemTy(re);
-}
+}}
 
 /**
   Match pattern `p delim p delim p ... p delim p`
 
   Return the result of left-associative applying `op` on the result of `p`
 */
-auto chain(alias p, alias op, alias delim, bool allow_empty=false)(Stream i) {
+template chain(alias p, alias op, alias delim, bool allow_empty=false) { auto chain(R)(ref R i) if (isStream!R) {
 	auto ret = p(i);
 //	alias ElemTy = ReturnType!op;
 	static if (allow_empty) {
@@ -100,7 +101,7 @@ auto chain(alias p, alias op, alias delim, bool allow_empty=false)(Stream i) {
 			re = pret.r;
 			break;
 		}
-		static if (is(ReturnType!delim == ParseResult!void))
+		static if (is(ParserReturnType!(delim, R) == ParseResult!void))
 			res = op(res, pret.result);
 		else
 			res = op(res, dret.result, pret.result);
@@ -109,15 +110,16 @@ auto chain(alias p, alias op, alias delim, bool allow_empty=false)(Stream i) {
 		i.drop();
 	}
 	return ok_result(res, consumed, re);
-}
+}}
 
 /**
   Match `func*` or `func+`
 
   Return array of func's result
 */
-auto many(alias func, bool allow_none = false)(Stream i) {
-	alias ElemTy = ElemType!(ReturnType!func);
+template many(alias func, bool allow_none = false) {
+auto many(R)(ref R i) if (isStream!R) {
+	alias ElemTy = ElemType!(ParserReturnType!(func, R));
 	static if (is(ElemTy == void)) {
 		alias ARetTy = ParseResult!void;
 		size_t count = 0;
@@ -146,9 +148,10 @@ auto many(alias func, bool allow_none = false)(Stream i) {
 			count++;
 	}
 }
+}
 
 ///Consumes nothing, always return OK
-auto nop(Stream i) {
+auto nop(R)(ref R i) if (isStream!R) {
 	auto re = Reason(i, "nop");
 	return ParseResult!void(Result.OK, 0, re);
 }
@@ -160,7 +163,9 @@ private template genParserID(int start, T...) {
 		alias genParserID = TypeTuple!();
 	else {
 		private alias now = ParserID!(T[0], start);
-		static if (is(ReturnType!(T[0]) == ParseResult!void))
+		//If a parser returns ParseResult!void, it should always return void
+		//for any Stream type
+		static if (is(ParserReturnType!(T[0], BufStream) == ParseResult!void))
 			private enum int next = start;
 		else
 			private enum int next = start+1;
@@ -175,8 +180,10 @@ private template genParserID(int start, T...) {
   Also none of the parsers used in seq can return a tuple of results. Otherwise
   it won't compile.
 */
-auto seq(T...)(Stream i) {
-	alias ElemTys = ElemTypesNoVoid!(staticMap!(ReturnType, T));
+template seq(T...){
+auto seq(R)(ref R i) if (isStream!R) {
+	alias TParserReturnType(alias func) = ParserReturnType!(func, R);
+	alias ElemTys = ElemTypesNoVoid!(staticMap!(TParserReturnType, T));
 	alias RetTy = ParseResult!ElemTys;
 	alias PID = genParserID!(0, T);
 	auto re = Reason(i, "seq");
@@ -211,8 +218,10 @@ auto seq(T...)(Stream i) {
 	else
 		return ok_result(res, consumed, re);
 }
+}
 
-auto seq2(alias op, T...)(Stream i) {
+template seq2(alias op, T...) {
+auto seq2(R)(ref R i) if (isStream!R) {
 	auto r = seq!T(i);
 	if (!r.ok)
 		return err_result!(ReturnType!op)(r.r);
@@ -222,16 +231,19 @@ auto seq2(alias op, T...)(Stream i) {
 		ret = op(ret, r.result!(id+1));
 	return ok_result(ret, r.consumed, r.r);
 }
+}
 
 ///optionally matches p.
-auto optional(alias p)(Stream i) {
+template optional(alias p){
+auto optional(R)(ref R i) if (isStream!R) {
 	auto r = p(i);
 	r.s = Result.OK;
 	return r;
-}
+}}
 
 ///lookahead
-ParseResult!void lookahead(alias u, bool negative = false)(Stream i) {
+template lookahead(alias u, bool negative = false){
+ParseResult!void lookahead(R)(ref R i) if (isStream!R) {
 	i.push();
 	auto r = u(i);
 	i.pop();
@@ -241,11 +253,13 @@ ParseResult!void lookahead(alias u, bool negative = false)(Stream i) {
 	}
 	return ParseResult!void(Result.OK, 0, r.r);
 }
+}
 
 ///This combinator first try to match u without consuming anything,
 ///and continue only if u matches (or not, if negative == true).
-auto when(alias u, alias p, bool negative = false)(Stream i) {
-	alias RetTy = ReturnType!p;
+template when(alias u, alias p, bool negative = false) {
+auto when(R)(ref R i) if (isStream!R) {
+	alias RetTy = ParserReturnType!(p, R);
 	alias ElemTy = ElemType!RetTy;
 	auto re = Reason(i, "when");
 	i.push();
@@ -270,9 +284,12 @@ auto when(alias u, alias p, bool negative = false)(Stream i) {
 	auto r2 = p(i);
 	return r;
 }
+}
 
 ///Match a string, return the matched string
-ParseResult!string token(string t)(Stream i) {
+template token(string t) {
+ParseResult!string token(R)(ref R i) {
+	static assert(isStream!R);
 	auto re = Reason(i, "token");
 	if (!i.starts_with(t)) {
 		string found;
@@ -285,40 +302,42 @@ ParseResult!string token(string t)(Stream i) {
 	}
 	string ret = i.advance(t.length);
 	return ok_result!string(ret, t.length, re);
-}
+}}
 
 ///Skip `p` zero or more times
-ParseResult!void skip(alias p)(Stream i) {
+template skip(alias p) {
+ParseResult!void skip(R)(ref R i) if (isStream!R) {
 	auto re = Reason(i, "skip");
 	auto r = many!(p, true)(i);
 	return ParseResult!void(Result.OK, r.consumed, re);
-}
+}}
 
 ///Match 'p' but discard the result
-ParseResult!void discard(alias p)(Stream i) {
+template discard(alias p) {
+ParseResult!void discard(R)(ref R i) if (isStream!R) {
 	auto r = p(i);
 	if (!r.ok)
 		return err_result!void(r.r);
 	return ParseResult!void(Result.OK, r.consumed, r.r);
-}
+}}
 
 ///
 unittest {
 	import std.stdio;
 	import std.array;
 	import std.conv;
-	BufStream i = new BufStream("(asdf)");
+	BufStream i = BufStream("(asdf)");
 	auto r = between!(token!"(", token!"asdf", token!")")(i);
 	assert(r.ok);
 	assert(i.eof());
 
-	i = new BufStream("abcdaaddcc");
+	i = BufStream("abcdaaddcc");
 	alias abcdparser = many!(choice!(token!"a", token!"b", token!"c", token!"d"));
 	auto r2 = abcdparser(i);
 	assert(r2.ok);
 	assert(i.eof());
 
-	i = new BufStream("abcde");
+	i = BufStream("abcde");
 	i.push();
 	auto r3 = abcdparser(i);
 	assert(r3.ok); //Parse is OK because 4 char are consumed

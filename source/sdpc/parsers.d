@@ -6,7 +6,8 @@ import std.traits,
        std.conv;
 @safe :
 ///Match a single character, return func(indexOf, character)
-auto ch(string accept, alias func)(Stream i) {
+template ch(string accept, alias func) {
+auto ch(R)(ref R i) if (isStream!R) {
 	alias ElemTy = ReturnType!func;
 	alias RetTy = ParseResult!ElemTy;
 	auto re = Reason(i, "char");
@@ -22,9 +23,10 @@ auto ch(string accept, alias func)(Stream i) {
 	}
 	i.advance(1);
 	return RetTy(Result.OK, 1, re, func(digi, n));
-}
+}}
 
-auto not_ch(string reject)(Stream i) {
+template not_ch(string reject) {
+auto not_ch(R)(ref R i) if (isStream!R) {
 	auto r = Reason(i, "not char");
 	if (i.eof) {
 		r.msg = "EOF";
@@ -37,15 +39,20 @@ auto not_ch(string reject)(Stream i) {
 	}
 	i.advance(1);
 	return ok_result!char(n, 1, r);
-}
+}}
 
-template digit(alias _digits = digits) {
+template digit(string _digits = digits) {
 	private int conv(long id, char ch) { return cast(int)id; }
 	alias digit = ch!(_digits, conv);
 }
 
-int digit_concat(int base = 10)(int a, int b) {
-	return a*base+b;
+template digit_concat(int base = 10) {
+	int digit_concat(int a, int b) {
+		return a*base+b;
+	}
+	int digit_concat(int a) {
+		return a;
+	}
 }
 
 immutable string lower = "qwertyuiopasdfghjklzxcvbnm";
@@ -53,7 +60,7 @@ immutable string upper = "QWERTYUIOPASDFGHJKLZXCVBNM";
 immutable string alphabet = lower ~ upper;
 immutable string digits = "0123456789";
 
-template number(alias accept = digits, int base = 10)
+template number(string accept = digits, int base = 10)
 if (accept.length == base) {
 	alias number = chain!(digit!accept, digit_concat!base, nop);
 }
@@ -71,7 +78,7 @@ template word(alias accept = alphabet){
 	alias word = chain!(letter, str_concat, nop);
 }
 
-auto identifier(Stream i) {
+auto identifier(R)(ref R i) if (isStream!R) {
 	alias RetTy = ParseResult!string;
 	auto ret = letter!(alphabet~"_")(i);
 	auto re = ret.r;
@@ -85,7 +92,7 @@ auto identifier(Stream i) {
 	return RetTy(Result.OK, ret.consumed+ret2.consumed, re, str);
 }
 
-auto parse_escape1(Stream i) {
+auto parse_escape1(R)(ref R i) if (isStream!R) {
 	auto r = seq!(
 		discard!(token!"\\"),
 		choice!(
@@ -120,7 +127,7 @@ auto parse_escape1(Stream i) {
 	return ok_result(res, r.consumed, r.r);
 }
 
-auto parse_string(Stream i) {
+auto parse_string(R)(ref R i) if (isStream!R) {
 	//Parse a string containing escape sequence
 	auto r = between!(token!"\"",
 		many!(choice!(
@@ -143,17 +150,17 @@ string str_concat(string a, string b="") {
 unittest {
 	import std.array;
 	import std.stdio;
-	auto i = new BufStream("12354");
+	auto i = BufStream("12354");
 	auto r = number(i);
 	assert(r.ok);
 	assert(r == 12354, to!string(r));
 
-	i = new BufStream("ffabc");
+	i = BufStream("ffabc");
 	auto r3 = number!(digits~"abcdef", 16)(i);
 	assert(r3.ok);
 	assert(r3 == 1047228, to!string(r3));
 
-	i = new BufStream("_asd1234a");
+	i = BufStream("_asd1234a");
 	auto r2 = identifier(i);
 	assert(r2.ok);
 	assert(i.eof());
