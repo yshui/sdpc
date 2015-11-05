@@ -18,9 +18,7 @@ template ParserReturnType(alias fun, R) if (isStream!R) {
 	static if (__traits(isTemplate, fun))
 		alias ParserReturnType = ReturnType!(fun!R);
 	else {
-		static assert(isCallable!fun);
-		private R r = R.init;
-		alias ParserReturnType = typeof(fun(r));
+		alias ParserReturnType = ReturnType!fun;
 	}
 }
 
