@@ -15,8 +15,13 @@ private template isVoid(T) {
 		enum bool isVoid = false;
 }
 template ParserReturnType(alias fun, R) if (isStream!R) {
-	private R r = R.init;
-	alias ParserReturnType = typeof(fun(r));
+	static if (__traits(isTemplate, fun))
+		alias ParserReturnType = ReturnType!(fun!R);
+	else {
+		static assert(isCallable!fun);
+		private R r = R.init;
+		alias ParserReturnType = typeof(fun(r));
+	}
 }
 
 template ElemType(T) {
