@@ -10,6 +10,7 @@ import std.traits,
 template between(alias begin, alias func, alias end) { auto between(R)(ref R i) if (isStream!R) {
 	alias RetTy = ParserReturnType!(func, R);
 	alias ElemTy = ElemType!RetTy;
+	pragma(msg, RetTy);
 	static assert(is(RetTy == ParseResult!U, U));
 	i.push();
 	auto begin_ret = begin(i);
