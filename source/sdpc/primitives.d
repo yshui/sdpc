@@ -20,13 +20,7 @@ template ParserReturnType(alias fun, R) if (isStream!R) {
 }
 
 template ElemType(T) {
-	static if (is(T == ParseResult!U, U...)) {
-		static if (U.length == 1)
-			alias ElemType = U[0];
-		else
-			alias ElemType = U;
-	} else
-		static assert(false);
+	alias ElemType = T.ety;
 }
 
 private template stripVoid(T...) {
@@ -108,6 +102,10 @@ struct ParseResult(T...) {
 	Result s;
 	size_t consumed;
 	Reason r;
+	static if (T.length == 1)
+		alias ety = T[0];
+	else
+		alias ety = T;
 @safe :
 	static if (T.length == 0 || allSatisfy!(isVoid, T))
 		alias T2 = void;
