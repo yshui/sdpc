@@ -14,15 +14,29 @@ private template isVoid(T) {
 	else
 		enum bool isVoid = false;
 }
-template ParserReturnType(alias fun, R) if (isStream!R) {
-	static if (__traits(isTemplate, fun))
-		alias ParserReturnType = ReturnType!(fun!R);
+template ParserReturnType(alias fun, R) if (__traits(isTemplate, fun)) {
+	alias ParserReturnType = ReturnType!(fun!R);
+}
+template ParserReturnType(alias fun, R) if (isCallable!fun) {
+	alias ParserReturnType = ReturnType!fun;
+}
+template ParsersReturnTypes(R, T...) {
+	static if (T.length == 0) {
+		alias ParsersReturnTypes = AliasSeq!();
+	}
+	else static if (T.length == 1) {
+		alias ParsersReturnTypes = AliasSeq!(ParserReturnType!(T[0], R));
+	}
 	else {
-		alias ParserReturnType = ReturnType!fun;
+		alias ParsersReturnTypes =
+			AliasSeq!(
+				ParsersReturnTypes!(R, T[ 0  .. $/2]),
+				ParsersReturnTypes!(R, T[$/2 ..  $ ])
+			);
 	}
 }
 
-template ElemType(T) {
+template ElemType(alias T) {
 	alias ElemType = T.ety;
 }
 
@@ -169,21 +183,25 @@ struct ParseResult(T...) {
 			return ParseResult!T(Result.Err, 0, r, T.init);
 	}
 
-	ParseResult!T cast_result(T, alias func, R)(ref R i)
-	    if (is(ElemType!(ParserReturnType!(func, R)): T)) {
-		auto r = func(i);
-		if (!r.ok)
-			return err_result!T(r.r);
-		return ok_result(cast(T)r.result, r.consumed, r.r);
+	template cast_result(T, alias func) {
+		ParseResult!T cast_result(R)(ref R i)
+		    if (is(ElemType!(ParserReturnType!(func, R)): T)) {
+			auto r = func(i);
+			if (!r.ok)
+				return err_result!T(r.r);
+			return ok_result(cast(T)r.result, r.consumed, r.r);
+		}
 	}
 
 	///Cast single element to array
-	ParseResult!T cast_result(T: U[], alias func, U, R)(ref R i)
-	    if (is(ElemType!(ParserReturnType!(func, R)): U)) {
-		auto r = func(i);
-		if (!r.ok)
-			return err_result!T(r.r);
-		return ok_result([cast(U)r.result], r.consumed, r.r);
+	template cast_result(T: U[], alias func, U) {
+		ParseResult!T cast_result(R)(ref R i)
+		    if (is(ElemType!(ParserReturnType!(func, R)): U)) {
+			auto r = func(i);
+			if (!r.ok)
+				return err_result!T(r.r);
+			return ok_result([cast(U)r.result], r.consumed, r.r);
+		}
 	}
 }
 

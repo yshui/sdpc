@@ -10,7 +10,6 @@ import std.traits,
 template between(alias begin, alias func, alias end) { auto between(R)(ref R i) if (isStream!R) {
 	alias RetTy = ParserReturnType!(func, R);
 	alias ElemTy = ElemType!RetTy;
-	pragma(msg, RetTy);
 	static assert(is(RetTy == ParseResult!U, U));
 	i.push();
 	auto begin_ret = begin(i);
@@ -56,10 +55,11 @@ template choice(T...) { auto choice(R)(ref R i) if (isStream!R) {
 		auto ret = p(i);
 		if (ret.s == Result.OK)
 			return ret;
-		re.dep ~= ret.r;
+		//re.dep ~= ret.r;
 		if (ret.r > last)
 			last = ret.r;
 	}
+	re.dep = [last];
 	re.line = last.line;
 	re.col = last.col;
 	return err_result!ElemTy(re);
@@ -182,8 +182,7 @@ private template genParserID(int start, T...) {
 */
 template seq(T...){
 auto seq(R)(ref R i) if (isStream!R) {
-	alias TParserReturnType(alias func) = ParserReturnType!(func, R);
-	alias ElemTys = ElemTypesNoVoid!(staticMap!(TParserReturnType, T));
+	alias ElemTys = ElemTypesNoVoid!(ParsersReturnTypes!(R, T));
 	alias RetTy = ParseResult!ElemTys;
 	alias PID = genParserID!(0, T);
 	auto re = Reason(i, "seq");
