@@ -33,6 +33,15 @@ struct between(alias begin, alias func, alias end) {
 	}
 }
 
+///
+unittest {
+	import sdpc.parsers;
+	auto i = "(asdf)";
+	auto r = between!(token!"(", token!"asdf", token!")")(i);
+	assert(r.ok);
+	assert(!r.r.length);
+}
+
 ///Match any of the given pattern, stop when first match is found. All parsers
 ///must return the same type.
 struct choice(T...) {
@@ -131,6 +140,21 @@ struct many(alias func, bool allow_none = false) {
 	}
 }
 
+///
+unittest {
+	import sdpc.parsers;
+	auto i = "abcdaaddcc";
+	alias abcdparser = many!(choice!(token!"a", token!"b", token!"c", token!"d"));
+	auto r2 = abcdparser(i);
+	assert(r2.ok);
+	assert(!r2.r.length);
+
+	i = "abcde";
+	auto r3 = abcdparser(i);
+	assert(r3.ok); //Parse is OK because 4 char are consumed
+	assert(r3.r.length); //But the end-of-buffer is not reached
+}
+
 private struct DTTuple(T...) {
 	import std.typetuple;
 	import std.meta;
@@ -177,7 +201,27 @@ struct seq(T...) {
 	}
 }
 
-/// Optionally matches `p`
+///
+unittest {
+	import sdpc.parsers;
+	auto i = "abcde";
+	auto r4 = seq!(token!"a", token!"b", token!"c", token!"d", token!"e")(i);
+	assert(r4.ok);
+	assert(r4.v.v!0 == "a");
+	assert(r4.v.v!1 == "b");
+	assert(r4.v.v!2 == "c");
+	assert(r4.v.v!3 == "d");
+	assert(r4.v.v!4 == "e");
+
+	auto r5 = seq!(token!"a")(i); //seq with single argument.
+	assert(r5.ok);
+	assert(r5.v.v!0 == "a");
+}
+
+/** Optionally matches `p`
+
+  Return data type will be a Nullable of `p`'s data type
+*/
 struct optional(alias p) {
 	static auto opCall(R)(R i) if (isForwardRange!R) {
 		import std.typecons;
@@ -189,6 +233,19 @@ struct optional(alias p) {
 		else
 			return RT(i, nullable(r.v));
 	}
+}
+
+unittest {
+	import sdpc.parsers;
+
+	auto i = "asdf";
+	auto r6 = optional!(token!"x")(i);
+	assert(r6.ok);
+	assert(r6.v.isNull);
+
+	auto r7 = optional!(token!"a")(i);
+	assert(r7.ok);
+	assert(!r7.v.isNull);
 }
 
 /// Match `u` but doesn't consume anything from the input range

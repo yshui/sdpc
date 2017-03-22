@@ -85,6 +85,19 @@ template number(string accept = digits, int base = 10) if (accept.length == base
 	alias number = transform!(many!(digit!accept), (x) => x.reduce!((a,b) => a*base+b));
 }
 
+///
+unittest {
+	auto i = "12354";
+	auto rx = number!()(i);
+	assert(rx.ok);
+	assert(rx.v == 12354);
+
+	i = "ffabc";
+	auto rx1 = number!(digits~"abcdef", 16)(i);
+	assert(rx1.ok);
+	assert(rx1.v == 1047228);
+}
+
 /**
   Parse a sequence of characters
   Params:
@@ -103,6 +116,15 @@ auto identifier(R)(R i) if (isForwardRange!R) {
 	if (ret2.ok)
 		str ~= ret2.v;
 	return RT(ret2.cont, str);
+}
+
+///
+unittest {
+	auto i = "_asd1234a";
+	auto rx2 = identifier(i);
+	assert(rx2.ok);
+	assert(!rx2.r.length);
+	assert(rx2.v == "_asd1234a");
 }
 
 /// Parse escaped character, \n, \r, \b, \" and \\
@@ -156,57 +178,3 @@ auto parse_string(R)(R i) if (isForwardRange!R) {
 }
 
 alias skip_whitespace = skip!(choice!(token!" ", token!"\n", token!"\t"));
-
-///
-unittest {
-	import std.array;
-	import std.stdio, std.format;
-
-	string i = "(asdf)";
-	auto r = between!(token!"(", token!"asdf", token!")")(i);
-	assert(r.ok);
-	assert(!r.r.length);
-
-	i = "abcdaaddcc";
-	alias abcdparser = many!(choice!(token!"a", token!"b", token!"c", token!"d"));
-	auto r2 = abcdparser(i);
-	assert(r2.ok);
-	assert(!r2.r.length);
-
-	i = "abcde";
-	auto r3 = abcdparser(i);
-	assert(r3.ok); //Parse is OK because 4 char are consumed
-	assert(r3.r.length); //But the end-of-buffer is not reached
-
-	auto r4 = seq!(token!"a", token!"b", token!"c", token!"d", token!"e")(i);
-	assert(r4.ok);
-	assert(r4.v.v!0 == "a");
-	assert(r4.v.v!1 == "b");
-	assert(r4.v.v!2 == "c");
-	assert(r4.v.v!3 == "d");
-	assert(r4.v.v!4 == "e");
-
-	auto r5 = seq!(token!"a")(i); //test seq with single argument.
-	assert(r5.ok);
-	assert(r5.v.v!0 == "a");
-
-	auto r6 = optional!(token!"x")(i);
-	assert(r6.ok);
-	assert(r6.v.isNull);
-
-	i = "12354";
-	auto rx = number!()(i);
-	assert(rx.ok);
-	assert(rx.v == 12354);
-
-	i = "ffabc";
-	auto rx1 = number!(digits~"abcdef", 16)(i);
-	assert(rx1.ok);
-	assert(rx1.v == 1047228);
-
-	i = "_asd1234a";
-	auto rx2 = identifier(i);
-	assert(rx2.ok);
-	assert(!rx2.r.length);
-	assert(rx2.v == "_asd1234a");
-}
