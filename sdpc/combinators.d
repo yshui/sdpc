@@ -180,7 +180,7 @@ private struct DTTuple(T...) {
 	template idMatch(uint id) {
 		enum idMatch(T) = T.id == id;
 	}
-	alias E = Enumerate!T;
+	alias E = staticEnumerate!T;
 	alias E2 = Filter!(notVoid, E);
 	private TypeTuple!E2 data;
 

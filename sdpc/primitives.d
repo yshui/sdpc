@@ -1,8 +1,7 @@
 /++
   Common primitives used across this library
 
-  Copyright: (C) 2017 Yuxuan Shui
-  Author: Yuxuan Shui
+  Copyright: 2017 Yuxuan Shui
 +/
 module sdpc.primitives;
 import std.algorithm,
@@ -20,7 +19,11 @@ template ParserReturnType(R) {
 	alias ParserReturnType(alias T) = typeof(T(R.init));
 }
 
-template Enumerate(T...) {
+/**
+  Utility function for generate a tuple of `EnumeratePair` from an
+  input tuple. Each `EnumeratePair` will have an index attached to it
+*/
+template staticEnumerate(T...) {
 	struct EnumeratePair(uint xid, xT) {
 		enum id = xid;
 		alias T = xT;
@@ -40,11 +43,19 @@ template Enumerate(T...) {
 			                    E!(mid, T[$/2..$]));
 		}
 	}
-	alias Enumerate = E!(0, T);
+	alias staticEnumerate = E!(0, T);
 }
 
-/// Utility function for discard any kind of input data
-void discard_any(T)(auto ref T i) { }
+///
+unittest {
+	alias T = AliasSeq!(int, long, float);
+	// (EnumeratePair!(0u, int), EnumeratePair!(1u, long), EnumeratePair!(2u, float))
+	alias T2 = staticEnumerate!T;
+	foreach(id, EP; T2) {
+		static assert(id == EP.id);
+		static assert(is(EP.T == T[id]));
+	}
+}
 
 /**
   Parse result
