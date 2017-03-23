@@ -1,5 +1,7 @@
 /**
   Combinators
+
+  Copyright: 2017 Yuxuan Shui
 */
 module sdpc.combinators;
 import sdpc.primitives;
@@ -17,7 +19,7 @@ struct between(alias begin, alias func, alias end) {
 		auto ret1 = begin(i);
 		static assert(is(typeof(ret1).ErrType: PR.ErrType));
 		if (!ret1.ok)
-			return PR(ret1.e);
+			return PR(ret1.err);
 
 		auto ret = func(ret1.cont);
 		if (!ret.ok)
@@ -25,7 +27,7 @@ struct between(alias begin, alias func, alias end) {
 
 		auto ret2 = end(ret.cont);
 		if (!ret2.ok)
-			return PR(ret2.e);
+			return PR(ret2.err);
 		static if (is(PR.DataType == void))
 			return PR(ret2.cont);
 		else
@@ -39,7 +41,7 @@ unittest {
 	auto i = "(asdf)";
 	auto r = between!(token!"(", token!"asdf", token!")")(i);
 	assert(r.ok);
-	assert(!r.r.length);
+	assert(!r.cont.length);
 }
 
 ///Match any of the given pattern, stop when first match is found. All parsers
@@ -53,7 +55,7 @@ struct choice(T...) {
 			auto ret = p(i);
 			if (ret.ok)
 				return RT(ret.cont, ret.v);
-			err[id] = ret.e;
+			err[id] = ret.err;
 		}
 		return RT(err[]);
 	}
@@ -68,11 +70,15 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 	static auto opCall(R)(R i) if (isForwardRange!R) {
 		auto ret = p(i);
 		alias T = typeof(ret);
+		static if (is(T.DataType == void))
+			alias RT = ParseResult!(R, void, T.ErrType);
+		else
+			alias RT = ParseResult!(R, T.DataType[], T.ErrType);
 		if (!ret.ok) {
 			static if (allow_empty)
-				return T(ret.cont, T.DataType.init);
+				return RT(ret.cont, []);
 			else
-				return ret;
+				return RT(ret.err);
 		}
 
 		static if (!is(T.DataType == void))
@@ -93,10 +99,22 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 		}
 
 		static if (is(T.DataType == void))
-			return ParseResult!(R, void, T.ErrType)(last_range);
+			return RT(last_range);
 		else
-			return ParseResult!(R, T.DataType[], T.ErrType)(last_range, res);
+			return RT(last_range, res);
 	}
+}
+
+///
+unittest {
+	import sdpc.parsers;
+	import std.algorithm;
+
+	alias calc = transform!(chain!(number!(), token!"+"), (x) => x.reduce!"a+b");
+	auto i = "1+2+3+4+5";
+	auto r = calc(i);
+	assert(r.ok);
+	assert(r.v == 15);
 }
 
 /**
@@ -123,12 +141,12 @@ struct many(alias func, bool allow_none = false) {
 					if (allow_none || count > 0)
 						return RT(last_range);
 					else
-						return RT(ret.e);
+						return RT(ret.err);
 				} else {
 					if (allow_none || res.length > 0)
 						return RT(last_range, res);
 					else
-						return RT(ret.e);
+						return RT(ret.err);
 				}
 			}
 			static if (!is(PR.DataType == void))
@@ -147,12 +165,12 @@ unittest {
 	alias abcdparser = many!(choice!(token!"a", token!"b", token!"c", token!"d"));
 	auto r2 = abcdparser(i);
 	assert(r2.ok);
-	assert(!r2.r.length);
+	assert(!r2.cont.length);
 
 	i = "abcde";
 	auto r3 = abcdparser(i);
 	assert(r3.ok); //Parse is OK because 4 char are consumed
-	assert(r3.r.length); //But the end-of-buffer is not reached
+	assert(r3.cont.length); //But the end-of-buffer is not reached
 }
 
 private struct DTTuple(T...) {
@@ -176,7 +194,10 @@ private struct DTTuple(T...) {
 /**
   Appply a sequence of parsers one after another.
 
-  Don't use tuple as data type in any of the parsers.
+  Don't use tuple as data type in any of the parsers. The return
+  data type is a special type of tuple. To get the data of each of
+  the parsers, use `ParseResult.v.v!index`, where `index` is the
+  index of the desired parser in `T`.
 */
 struct seq(T...) {
 	static auto opCall(R)(R i) if (isForwardRange!R) {
@@ -192,7 +213,7 @@ struct seq(T...) {
 		foreach(id, p; T) {
 			auto ret = p(last_range);
 			if (!ret.ok)
-				return RT(ret.e);
+				return RT(ret.err);
 			static if (!is(PRS[id].DataType == void))
 				res.v!id = ret.v;
 			last_range = ret.cont;
@@ -235,6 +256,7 @@ struct optional(alias p) {
 	}
 }
 
+///
 unittest {
 	import sdpc.parsers;
 
@@ -250,24 +272,42 @@ unittest {
 
 /// Match `u` but doesn't consume anything from the input range
 struct lookahead(alias u, bool negative = false){
-	static ParseResult!R opCall(R)(R i) if (isForwardRange!R) {
+	static auto opCall(R)(R i) if (isForwardRange!R) {
 		auto r = u(i);
-		if ((!r.ok&&!negative) || (r.ok&&negative))
-			return ParseResult!R(r.e);
-		return ParseResult!R(i);
+		alias PR = typeof(r);
+		alias RT = ParseResult!(R, void, PR.ErrType);
+		static if (negative) {
+			if (r.ok)
+				return RT(RT.ErrType.init);
+			else
+				return RT(i);
+		} else {
+			if (r.ok)
+				return RT(i);
+			else
+				return RT(r.err);
+		}
 	}
 }
 
+///
+unittest {
+	import sdpc.parsers;
+
+	// Accept "asdf" if followed by "g"
+	alias p = seq!(token!"asdf", lookahead!(token!"g"));
+	auto i = "asdfg";
+	auto r1 = p(i);
+	assert(r1.ok);
+	assert(r1.cont == "g", r1.cont);
+
+	i = "asdff";
+	auto r2 = p(i);
+	assert(!r2.ok);
+}
 
 ///Skip `p` zero or more times
 alias skip(alias p) = discard!(many!(p, true));
 
 ///Match `p` but discard the result
-struct discard(alias p) {
-	static ParseResult!R opCall(R)(R i) if (isForwardRange!R) {
-		auto r = p(i);
-		if (!r.ok)
-			return ParseResult!R(r.e);
-		return ParseResult!R(r.cont);
-	}
-}
+alias discard(alias p) = transform!(p, (_) { });

@@ -1,5 +1,10 @@
 /**
   Simple parsers
+
+  Here are some commonly used parsers. Also as an example for how
+  to use the combinators.
+
+  Copyright: 2017 Yuxuan Shui
 */
 module sdpc.parsers;
 import sdpc.combinators,
@@ -51,13 +56,13 @@ struct ch(alias accept) if (isSomeChar!(ElementType!(typeof(accept)))){
 }
 
 /// Match any character except those in reject
-struct not_ch(alias reject) if (isSomeChar!(ElementType!(typeof(accept)))){
+struct not_ch(alias reject) if (isSomeChar!(ElementType!(typeof(reject)))){
 	static auto opCall(R)(R i) if (isForwardRange!R) {
-		alias RT = ParseResult!(R, Char, ParseError!R);
-		if (i.empty || accept.indexOf(i.front) != -1) {
+		alias RT = ParseResult!(R, ElementType!(typeof(reject)), ParseError!R);
+		if (i.empty || reject.indexOf(i.front) != -1) {
 			if (!i.empty)
 				i.popFront;
-			return RT(ParseError!R("not expecting one of \""~accept~"\"", i));
+			return RT(ParseError!R("not expecting one of \""~reject~"\"", i));
 		}
 
 		auto ch = i.front;
@@ -123,27 +128,27 @@ unittest {
 	auto i = "_asd1234a";
 	auto rx2 = identifier(i);
 	assert(rx2.ok);
-	assert(!rx2.r.length);
+	assert(!rx2.cont.length);
 	assert(rx2.v == "_asd1234a");
 }
 
 /// Parse escaped character, \n, \r, \b, \" and \\
 auto parse_escape1(R)(R i) if (isForwardRange!R) {
-	alias RT = ParseResult!(R, char, ParseError!R);
+	alias RT = ParseResult!(R, dchar, ParseError!R);
 	auto r = seq!(
 		discard!(token!"\\"),
-		choice!(
+		transform_err!(choice!(
 			token!"n",
 			token!"b",
 			token!"r",
 			token!"\"",
 			token!"\\"
-		)
+		), (x) => x[0])
 	)(i);
 	if (!r.ok)
-		return RT("Failed to parse escape sequence", i);
-	char res;
-	final switch(r.v) {
+		return RT(ParseError!R("Failed to parse escape sequence", i));
+	dchar res;
+	final switch(r.v.v!1) {
 	case "n":
 		res = '\n';
 		break;
@@ -165,16 +170,34 @@ auto parse_escape1(R)(R i) if (isForwardRange!R) {
 
 /// Parse a string enclosed by a pair of quotes, and containing escape sequence
 auto parse_string(R)(R i) if (isForwardRange!R) {
-	alias RT = ParseResult!(R, string, ParseError!R);
+	alias RT = ParseResult!(R, dchar[], ParseError!R);
 	auto r = between!(token!"\"",
-		many!(choice!(
+		transform_err!(many!(choice!(
 			parse_escape1,
 			not_ch!"\""
-		)),
+		)), (x) => x[0]),
 	token!"\"")(i);
 	if (!r.ok)
 		return RT(ParseError!R("Failed to parse a string", i));
 	return r;
 }
 
+///
+unittest {
+	auto i = "\"asdf\\n\\b\"";
+	auto r = parse_string(i);
+	import std.format;
+	assert(r.ok);
+	assert(r.v == "asdf\n\b", format("%s", r.v));
+}
+
+/// Skip white spaces
 alias skip_whitespace = skip!(choice!(token!" ", token!"\n", token!"\t"));
+
+///
+unittest {
+	auto i = " \n\t    ";
+	auto r = skip_whitespace(i);
+	assert(r.ok);
+	assert(!r.cont.length);
+}

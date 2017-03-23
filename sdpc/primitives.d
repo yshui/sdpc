@@ -17,15 +17,17 @@ import std.algorithm,
 	R = range type
 */
 template ParserReturnType(R) {
-	alias ParserReturnType(T) = typeof(T(R.init));
+	alias ParserReturnType(alias T) = typeof(T(R.init));
 }
 
 template Enumerate(T...) {
 	struct EnumeratePair(uint xid, xT) {
 		enum id = xid;
 		alias T = xT;
-		T value;
-		alias value this;
+		static if (!is(T == void)) {
+			T value;
+			alias value this;
+		}
 	}
 	template E(uint start, T...) {
 		static if (T.length == 0)
@@ -41,6 +43,9 @@ template Enumerate(T...) {
 	alias Enumerate = E!(0, T);
 }
 
+/// Utility function for discard any kind of input data
+void discard_any(T)(auto ref T i) { }
+
 /**
   Parse result
   Params:
@@ -49,17 +54,18 @@ template Enumerate(T...) {
 	T = Data type, used for returning data from parser
  */
 struct ParseResult(R, T = void, E = ulong)
-if (isForwardRange!R && !is(R == E) && is(typeof(
+if (isForwardRange!R && !is(E: R) && is(typeof(
     {immutable(E) foo = E.init; E copy = foo;}
 ))) {
+@safe:
 	/// Indicates whether the parser succeeded
 	immutable(bool) ok;
 
-	/// Result range, where the following parsers should continue parsing
-	R r;
+	private union {
+		R r_;
 
-	/// Error information
-	immutable(E) e;
+		E e_;
+	}
 
 	/// The data type, for convenience 
 	alias DataType = T;
@@ -95,36 +101,57 @@ if (isForwardRange!R && !is(R == E) && is(typeof(
 			return U(e);
 		}
 
-		static auto apply(alias func)(auto ref ParseResult!(R, T, E) i) if (is(typeof(func(i.data_)))){
+		@trusted static auto apply(alias func)(auto ref ParseResult!(R, T, E) i) if (is(typeof(func(i.data_)))){
 			alias RT = typeof(func(i.data_));
 			alias PR = ParseResult!(R, RT, E);
-			if (i.ok)
-				return PR(i.r.save, func(i.data_));
-			return PR(i.e);
+			if (i.ok) {
+				static if (!is(RT == void))
+					return PR(i.r_.save, func(i.data_));
+				else
+					return PR(i.r_.save);
+			}
+			return PR(i.e_);
 		}
 
-		this(R r, T d) {
-			this.r = r;
+		@trusted this(R r, T d) {
+			this.r_ = r;
 			this.data_ = d;
 			this.ok = true;
 		}
 	} else {
-		this(R r) {
-			this.r = r;
+		@trusted this(R r) {
+			this.r_ = r;
 			this.ok = true;
 		}
 	}
 
-	/// Create a parse result with error (implies ok = false)
-	this(E e) {
-		this.ok = false;
-		this.r = R.init;
-		this.e = e;
+	/// Get error information
+	@property @trusted E err() in {
+		assert(!ok);
+	} body {
+		return e_;
 	}
 
-	/// Create a copy of the resulting range
-	R cont() {
-		return r.save();
+	/// Transform `func` that takes a `E` into a function that takes a `ParseResult`
+	@trusted static auto apply_err(alias func)(auto ref ParseResult!(R, T, E) i) if (is(typeof(func(i.e_)))){
+		alias RT = typeof(func(i.e_));
+		alias PR = ParseResult!(R, T, RT);
+		if (i.ok)
+			return PR(i.r_.save, i.data_);
+		return PR(func(i.e_));
+	}
+
+	/// Create a parse result with error (implies ok = false)
+	@trusted this(E e) {
+		this.ok = false;
+		this.e_ = e;
+	}
+
+	/// Get result range, where the following parsers should continue parsing
+	@property @trusted R cont() in {
+		assert(ok);
+	} body {
+		return r_.save();
 	}
 
 }
@@ -140,12 +167,32 @@ template isParser(T, E = char) {
 	                is(typeof(T(rng)) == ParseResult!(S, Err, D), S, Err, D);
 }
 
+/**
+  Apply `func` to the data returned by the `Parser`
+
+  This transform `Parser` from a parser returning data type `T` to
+  a parser returning data type `typeof(func(T))`
+*/
 struct transform(Parser, alias func) {
 	static auto opCall(R)(R r) {
 		alias PR = typeof(Parser(r));
 		return PR.apply!func(Parser(r));
 	}
 }
+
+/**
+  Apply `func` to the error returned by the `Parser`
+
+  Similar to `transform`, but operates on error instead of data
+*/
+struct transform_err(Parser, alias func) {
+	static auto opCall(R)(R r) {
+		alias PR = typeof(Parser(r));
+		return PR.apply_err!func(Parser(r));
+	}
+}
+
+///
 unittest {
 	struct A {
 		int a;
