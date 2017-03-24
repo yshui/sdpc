@@ -21,7 +21,7 @@ auto nop(R)(ref R i) if (isForwardRange!R) {
 }
 
 struct ParseError(R) {
-	dstring msg;
+	string msg;
 	R err_range;
 	alias RangeType = R;
 }
@@ -30,24 +30,25 @@ struct ParseError(R) {
 struct token(string t) {
 	import std.algorithm.comparison;
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(equal(i, t)))) {
-		import std.array;
+		import std.array, std.format;
 		alias RT = ParseResult!(R, string, ParseError!R);
 		auto str = take(i, t.length);
 		auto retr = i.save.drop(t.length);
 		if (equal(str.save, t))
 			return RT(retr, t);
-		return RT(ParseError!R("expecting \""~t~"\", got \""~str.array.idup~"\"", retr));
+		return RT(ParseError!R(format("expecting \"%s\", got \"%s\"", t, str.array), retr));
 	}
 }
 
 /// Match any character in accept
-struct ch(alias accept) if (isSomeChar!(ElementType!(typeof(accept)))){
-	static auto opCall(R)(R i) if (isForwardRange!R) {// && is(typeof(ElementType!R == accept[0]))) {
-		alias RT = ParseResult!(R, ElementType!(typeof(accept)), ParseError!R);
+struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
+	alias Char = ElementType!(typeof(accept));
+	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
+		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
 		if (i.empty || accept.indexOf(i.front) == -1) {
 			if (!i.empty)
 				i.popFront;
-			return RT(ParseError!R("expecting one of \""~accept~"\"", i));
+			return RT(ParseError!R(format("expecting one of \"%s\"", accept), i));
 		}
 
 		auto ch = i.front;
@@ -57,13 +58,14 @@ struct ch(alias accept) if (isSomeChar!(ElementType!(typeof(accept)))){
 }
 
 /// Match any character except those in reject
-struct not_ch(alias reject) if (isSomeChar!(ElementType!(typeof(reject)))){
-	static auto opCall(R)(R i) if (isForwardRange!R) {
-		alias RT = ParseResult!(R, ElementType!(typeof(reject)), ParseError!R);
+struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
+	alias Char = ElementType!(typeof(reject));
+	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
+		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
 		if (i.empty || reject.indexOf(i.front) != -1) {
 			if (!i.empty)
 				i.popFront;
-			return RT(ParseError!R("not expecting one of \""~reject~"\"", i));
+			return RT(ParseError!R(format("not expecting one of \"%s\"", reject), i));
 		}
 
 		auto ch = i.front;
