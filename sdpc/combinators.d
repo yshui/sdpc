@@ -153,6 +153,7 @@ unittest {
 	assert(r3.cont.length); //But the end-of-buffer is not reached
 }
 
+// We need this because TypeTuple don't allow `void` in it.
 private struct DTTuple(T...) {
 	import std.typetuple;
 	import std.meta;
@@ -166,8 +167,10 @@ private struct DTTuple(T...) {
 
 	ref auto v(uint id)() {
 		enum rid = staticIndexOf!(E[id], E2);
-		static assert(rid != -1);
-		return data[rid].value;
+		static if (rid != -1)
+			return data[rid].value;
+		else
+			return;
 	}
 }
 
