@@ -13,27 +13,7 @@ import std.traits,
 
 @safe :
 ///Match pattern `begin func end`, return the result of func.
-struct between(alias begin, alias func, alias end) {
-	static auto opCall(R)(R i) if (isForwardRange!R) {
-		alias PR = typeof(func(i));
-		auto ret1 = begin(i);
-		static assert(is(typeof(ret1).ErrType: PR.ErrType));
-		if (!ret1.ok)
-			return PR(ret1.err);
-
-		auto ret = func(ret1.cont);
-		if (!ret.ok)
-			return ret;
-
-		auto ret2 = end(ret.cont);
-		if (!ret2.ok)
-			return PR(ret2.err);
-		static if (is(PR.DataType == void))
-			return PR(ret2.cont);
-		else
-			return PR(ret2.cont, ret.v);
-	}
-}
+alias between(alias begin, alias func, alias end) = transform!(seq!(discard!begin, func, discard!end), (x) => x.v!1);
 
 ///
 unittest {
