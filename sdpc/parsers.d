@@ -23,6 +23,7 @@ auto nop(R)(ref R i) if (isForwardRange!R) {
 struct ParseError(R) {
 	dstring msg;
 	R err_range;
+	alias RangeType = R;
 }
 
 /// Match a string, return the matched string
@@ -108,7 +109,7 @@ unittest {
   Params:
 	accept = an array of acceptable characters
 */
-alias word(alias accept = alphabet) = transform!(many!(ch!accept), (x) => x.idup);
+alias word(alias accept = alphabet) = many!(ch!accept);
 
 /// Parse an identifier, starts with a letter or _, followed by letter, _, or digits
 auto identifier(R)(R i) if (isForwardRange!R) {
@@ -192,12 +193,13 @@ unittest {
 }
 
 /// Skip white spaces
-alias skip_whitespace = skip!(choice!(token!" ", token!"\n", token!"\t"));
+alias whitespace = transform_err!(choice!(token!" ", token!"\n", token!"\t"),
+                                  (x) => typeof(x[0])("Not a whitespace", x[0].err_range));
 
 ///
 unittest {
-	auto i = " \n\t    ";
-	auto r = skip_whitespace(i);
+	const(char)[] i = " \n\t    ";
+	auto r = skip!whitespace(i);
 	assert(r.ok);
 	assert(!r.cont.length);
 }
