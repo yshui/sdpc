@@ -6,6 +6,8 @@
 
 Because of the determinism, each parser should return a single ParseResult, and indicate the next input position via modifing the input Stream variable.
 
+[Documentation](https://yshui.gitlab.io/sdpc)
+
 ## Example
 
 ```d
@@ -19,3 +21,5 @@ void main() {
 	assert(parse_parentheses(i).ok);
 }
 ```
+
+[More examples](examples)

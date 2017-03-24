@@ -1,0 +1,12 @@
+{
+	"name": "http",
+	"authors": [
+		"Yuxuan Shui"
+	],
+	"description": "A http request parser using sdpc",
+	"copyright": "Copyright © 2017, Yuxuan Shui",
+	"license": "MIT",
+	"dependencies": {
+		"sdpc": "0.1.1"
+	}
+}
