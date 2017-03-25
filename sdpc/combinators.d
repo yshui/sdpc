@@ -130,7 +130,7 @@ struct many(alias func, bool allow_none = false) {
 				}
 			}
 			static if (!is(PR.DataType == void))
-				res ~= [ret.v];
+				res ~= ret.v;
 			else
 				count++;
 			last_range = ret.cont;
