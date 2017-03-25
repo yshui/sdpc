@@ -30,13 +30,12 @@ struct ParseError(R) {
 struct token(string t) {
 	import std.algorithm.comparison;
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(equal(i, t)))) {
-		import std.array, std.format;
 		alias RT = ParseResult!(R, string, ParseError!R);
 		auto str = take(i, t.length);
 		auto retr = i.save.drop(t.length);
 		if (equal(str.save, t))
 			return RT(retr, t);
-		return RT(ParseError!R(format("expecting \"%s\", got \"%s\"", t, str.array), retr));
+		return RT(ParseError!R("expecting", retr));
 	}
 }
 
@@ -45,15 +44,21 @@ struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 	alias Char = ElementType!(typeof(accept));
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
 		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
-		if (i.empty || accept.indexOf(i.front) == -1) {
-			if (!i.empty)
-				i.popFront;
-			return RT(ParseError!R(format("expecting one of \"%s\"", accept), i));
-		}
+		alias V = expandRange!accept;
+		if (i.empty)
+			return RT(ParseError!R("eof", i));
 
-		auto ch = i.front;
-		i.popFront;
-		return RT(i, ch);
+		auto u = i.front;
+		switch(u) {
+			// static foreach magic
+			foreach(v; V) {
+			case v:
+				i.popFront;
+				return RT(i, u);
+			}
+			default:
+				return RT(ParseError!R("unexpected", i));
+		}
 	}
 }
 
@@ -62,15 +67,21 @@ struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 	alias Char = ElementType!(typeof(reject));
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
 		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
-		if (i.empty || reject.indexOf(i.front) != -1) {
-			if (!i.empty)
-				i.popFront;
-			return RT(ParseError!R(format("not expecting one of \"%s\"", reject), i));
-		}
+		alias V = expandRange!reject;
+		if (i.empty)
+			return RT(ParseError!R("eof", i));
 
-		auto ch = i.front;
-		i.popFront;
-		return RT(i, ch);
+		auto u = i.front;
+		switch(u) {
+			// static foreach magic
+			foreach(v; V) {
+			case v:
+				return RT(ParseError!R("unexpected", i));
+			}
+			default:
+				i.popFront;
+				return RT(i, u);
+		}
 	}
 }
 
@@ -140,31 +151,24 @@ auto parse_escape1(R)(R i) if (isForwardRange!R) {
 	alias RT = ParseResult!(R, dchar, ParseError!R);
 	auto r = seq!(
 		discard!(token!"\\"),
-		transform_err!(choice!(
-			token!"n",
-			token!"b",
-			token!"r",
-			token!"\"",
-			token!"\\"
-		), (x) => x[0])
-	)(i);
+		ch!"nbr\"\\")(i);
 	if (!r.ok)
 		return RT(ParseError!R("Failed to parse escape sequence", i));
 	dchar res;
 	final switch(r.v.v!1) {
-	case "n":
+	case 'n':
 		res = '\n';
 		break;
-	case "b":
+	case 'b':
 		res = '\b';
 		break;
-	case "r":
+	case 'r':
 		res = '\r';
 		break;
-	case "\"":
+	case '"':
 		res = '\"';
 		break;
-	case "\\":
+	case '\\':
 		res = '\\';
 		break;
 	}
@@ -187,11 +191,11 @@ auto parse_string(R)(R i) if (isForwardRange!R) {
 
 ///
 unittest {
-	auto i = "\"asdf\\n\\b\"";
+	auto i = "\"asdf\\n\\b\\\"\"";
 	auto r = parse_string(i);
 	import std.format;
 	assert(r.ok);
-	assert(r.v == "asdf\n\b", format("%s", r.v));
+	assert(r.v == "asdf\n\b\"", format("%s", r.v));
 }
 
 /// Skip white spaces

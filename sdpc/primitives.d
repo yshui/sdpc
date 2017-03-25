@@ -20,6 +20,22 @@ template ParserReturnType(R) {
 }
 
 /**
+  Expand a compile time range into a tuple
+*/
+template expandRange(alias R) if (isInputRange!(typeof(R))) {
+	static if (R.empty)
+		alias expandRange = AliasSeq!();
+	else
+		alias expandRange = AliasSeq!(R.front(), expandRange!(R.drop(1)));
+}
+
+///
+unittest {
+	import std.range;
+	//static assert (is(expandRange!(iota(0,5)): AliasSeq!(0,1,2,3,4)));
+}
+
+/**
   Utility function for generate a tuple of `EnumeratePair` from an
   input tuple. Each `EnumeratePair` will have an index attached to it
 */
