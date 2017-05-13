@@ -29,19 +29,21 @@ struct ParseError(R) {
 /// Match a string, return the matched string
 struct token(string t) {
 	import std.algorithm.comparison;
+	static immutable string msg = "expecting \""~t~"\"";
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(equal(i, t)))) {
 		alias RT = ParseResult!(R, string, ParseError!R);
 		auto str = take(i, t.length);
 		auto retr = i.save.drop(t.length);
 		if (equal(str.save, t))
 			return RT(retr, t);
-		return RT(ParseError!R("expecting", retr));
+		return RT(ParseError!R(msg, retr));
 	}
 }
 
 /// Match any character in accept
 struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 	alias Char = ElementType!(typeof(accept));
+	static immutable string msg = "expecting one of \""~accept~"\"";
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
 		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
 		alias V = expandRange!accept;
@@ -57,7 +59,7 @@ struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 				return RT(i, u);
 			}
 			default:
-				return RT(ParseError!R("unexpected", i));
+				return RT(ParseError!R(msg, i));
 		}
 	}
 }
@@ -65,6 +67,7 @@ struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 /// Match any character except those in reject
 struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 	alias Char = ElementType!(typeof(reject));
+	static immutable string msg = "not expecting one of \""~reject~"\"";
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
 		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
 		alias V = expandRange!reject;
@@ -76,7 +79,7 @@ struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 			// static foreach magic
 			foreach(v; V) {
 			case v:
-				return RT(ParseError!R("unexpected", i));
+				return RT(ParseError!R(msg, i));
 			}
 			default:
 				i.popFront;
