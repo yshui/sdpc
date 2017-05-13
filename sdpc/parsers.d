@@ -12,7 +12,8 @@ import sdpc.combinators,
 import std.traits,
        std.string,
        std.conv,
-       std.range;
+       std.range,
+       std.meta;
 public @safe :
 
 ///Consumes nothing, always return OK
@@ -46,7 +47,7 @@ struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 	static immutable string msg = "expecting one of \""~accept~"\"";
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
 		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
-		alias V = expandRange!accept;
+		alias V = aliasSeqOf!accept;
 		if (i.empty)
 			return RT(ParseError!R("eof", i));
 
@@ -70,7 +71,7 @@ struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 	static immutable string msg = "not expecting one of \""~reject~"\"";
 	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
 		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
-		alias V = expandRange!reject;
+		alias V = aliasSeqOf!reject;
 		if (i.empty)
 			return RT(ParseError!R("eof", i));
 
