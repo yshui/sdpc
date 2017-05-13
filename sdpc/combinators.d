@@ -11,12 +11,11 @@ import std.traits,
        std.typetuple,
        std.range;
 
-@safe :
 ///Match pattern `begin func end`, return the result of func.
 alias between(alias begin, alias func, alias end) = transform!(seq!(discard!begin, func, discard!end), (x) => x.v!1);
 
 ///
-unittest {
+@safe unittest {
 	import sdpc.parsers;
 	auto i = "(asdf)";
 	auto r = between!(token!"(", token!"asdf", token!")")(i);
@@ -86,7 +85,7 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 }
 
 ///
-unittest {
+@safe unittest {
 	import sdpc.parsers;
 	import std.algorithm;
 
@@ -139,7 +138,7 @@ struct many(alias func, bool allow_none = false) {
 }
 
 ///
-unittest {
+@safe unittest {
 	import sdpc.parsers;
 	auto i = "abcdaaddcc";
 	alias abcdparser = many!(choice!(token!"a", token!"b", token!"c", token!"d"));
@@ -206,7 +205,7 @@ struct seq(T...) {
 }
 
 ///
-unittest {
+@safe unittest {
 	import sdpc.parsers;
 	auto i = "abcde";
 	auto r4 = seq!(token!"a", token!"b", token!"c", token!"d", token!"e")(i);
@@ -240,7 +239,7 @@ struct optional(alias p) {
 }
 
 ///
-unittest {
+@safe unittest {
 	import sdpc.parsers;
 
 	auto i = "asdf";
@@ -274,7 +273,7 @@ struct lookahead(alias u, bool negative = false){
 }
 
 ///
-unittest {
+@safe unittest {
 	import sdpc.parsers;
 
 	// Accept "asdf" if followed by "g"
