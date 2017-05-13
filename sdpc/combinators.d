@@ -99,41 +99,46 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 /**
   Match `func*` or `func+`
 
-  Return array of func's result
+  Apply reduce() on the `func`'s return data value (i.e. ReturnType.data)
+*/
+struct many_r(alias func, alias reduce, alias init, bool allow_none = false) {
+	static auto opCall(R)(R i) if (isForwardRange!R) {
+		alias PR = typeof(func(i));
+		alias RDT = typeof(init);
+		alias RT = ParseResult!(R, RDT, PR.ErrType);
+		RDT res = init;
+
+		auto last_range = i.save;
+		bool none = true;
+		while(true) {
+			auto ret = func(last_range);
+			if (!ret.ok) {
+				if (allow_none || !none)
+					return RT(last_range, res);
+				else
+					return RT(ret.err);
+			}
+			none = false;
+			static if (!is(PR.DataType == void))
+				res = reduce(res, ret.v);
+			else
+				res = reduce(res);
+			last_range = ret.cont;
+		}
+	}
+}
+
+/**
+  Like `many_r` but with default `reduce` function that put all return
+  values into an array, or return number of matches
 */
 struct many(alias func, bool allow_none = false) {
 	static auto opCall(R)(R i) if (isForwardRange!R) {
 		alias PR = typeof(func(i));
-		static if (is(PR.DataType == void)) {
-			alias RT = ParseResult!(R, void, PR.ErrType);
-			size_t count = 0;
-		} else {
-			alias RT = ParseResult!(R, PR.DataType[], PR.ErrType);
-			PR.DataType[] res;
-		}
-
-		auto last_range = i.save;
-		while(true) {
-			auto ret = func(last_range);
-			if (!ret.ok) {
-				static if (is(PR.DataType == void)) {
-					if (allow_none || count > 0)
-						return RT(last_range);
-					else
-						return RT(ret.err);
-				} else {
-					if (allow_none || res.length > 0)
-						return RT(last_range, res);
-					else
-						return RT(ret.err);
-				}
-			}
-			static if (!is(PR.DataType == void))
-				res ~= ret.v;
-			else
-				count++;
-			last_range = ret.cont;
-		}
+		static if (is(PR.DataType == void))
+			return many_r!(func, a=>a+1, 0uL, allow_none)(i);
+		else
+			return many_r!(func, (ref a,b)=>a~=b, cast(PR.DataType[])[], allow_none)(i);
 	}
 }
 
