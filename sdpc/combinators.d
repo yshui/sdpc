@@ -289,7 +289,7 @@ struct lookahead(alias u, bool negative = false){
 }
 
 ///Skip `p` zero or more times
-alias skip(alias p) = discard!(many!(p, true));
+alias skip(alias p) = discard!(many!(discard!p, true));
 
 ///Match `p` but discard the result
 alias discard(alias p) = transform!(p, (_) { });
