@@ -10,57 +10,109 @@ module sdpc.parsers;
 import sdpc.combinators,
        sdpc.primitives;
 import std.traits,
-       std.string,
        std.conv,
-       std.range,
-       std.meta;
-public @safe :
+       std.meta,
+       std.functional,
+       std.algorithm;
+import std.range : ElementType;
+import std.array : array;
+public:
 
 ///Consumes nothing, always return OK
-auto nop(R)(ref R i) if (isForwardRange!R) {
-	return ParseResult!R(i);
+auto nop(R)(in auto ref R i) if (isForwardRange!R) {
+	return Result!R(i);
 }
 
-struct ParseError(R) {
-	string msg;
-	R err_range;
+struct Err(R) {
+	const(string[])[] e;
+	const(bool)[] inv;
+	const(R)[] err_range;
 	alias RangeType = R;
+	Err!R opBinary(string op)(auto ref const(Err!R) o) const if (op == "+") {
+		assert(e.length > 0);
+		assert(o.e.length > 0);
+		return Err!R(e~o.e, inv~o.inv, err_range~o.err_range);
+	}
+	this(const(string[])[] e, const(bool)[] inv, const(R)[] i) {
+		this.e = e;
+		this.inv = inv;
+		this.err_range = i;
+	}
+	this(const(string[]) e, bool inv, R i) {
+		this.e = [e];
+		this.inv = [inv];
+		this.err_range = [i];
+	}
+	private string toString1(ulong id) const {
+		import std.format;
+		import std.range : take, join;
+		import std.string : indexOf;
+		string tmp;
+		if (inv[id])
+			tmp = "Expecting any character/string other than: "~e[id].join(", ");
+		else
+			tmp = "Expecting any of the followings: "~e[id].join(", ");
+		ulong mlen = e[id].map!"a.length".maxElement;
+		string got;
+		if (err_range[id].empty)
+			got = "<EOF>";
+		else
+			got = err_range[id].take(mlen).to!string;
+		string pos;
+		static if (is(typeof(R.init.row)) && is(typeof(R.init.col)))
+			return format("%s, but got %s at %s, %s", tmp, got, err_range[id].row, err_range[id].col);
+		else
+			return tmp~", but got "~got;
+	}
+	string toString() const {
+		assert(e.length > 0);
+		if (e.length == 1)
+			return toString1(0);
+		string ret = "Encoutered following errors (only need to solve one of them): \n";
+		foreach(i; 0..e.length)
+			ret ~= "\t"~toString1(i)~"\n";
+		return ret;
+	}
 }
 
 /// Match a string, return the matched string
 struct token(string t) {
 	import std.algorithm.comparison;
-	static immutable string msg = "expecting \""~t~"\"";
-	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(equal(i, t)))) {
-		alias RT = ParseResult!(R, string, ParseError!R);
+	enum string[] expects = [t];
+	static auto opCall(R)(in auto ref R i)
+	if (isForwardRange!R) {
+		import std.range : take, drop;
+		alias RT = Result!(R, string, Err!R);
 		auto str = take(i, t.length);
 		auto retr = i.save.drop(t.length);
 		if (equal(str.save, t))
 			return RT(retr, t);
-		return RT(ParseError!R(msg, retr));
+		return RT(Err!R(expects, false, i.save));
 	}
 }
 
 /// Match any character in accept
 struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 	alias Char = ElementType!(typeof(accept));
-	static immutable string msg = "expecting one of \""~accept~"\"";
-	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
-		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
+	enum string[] expects = accept.map!"[a]".array;
+	static auto opCall(R)(in auto ref R i)
+	if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
+		alias RT = Result!(R, Unqual!(ElementType!R), Err!R);
 		alias V = aliasSeqOf!accept;
 		if (i.empty)
-			return RT(ParseError!R("eof", i));
+			return RT(Err!R(expects, false, i));
 
 		auto u = i.front;
+		auto retr = i.save;
 		switch(u) {
 			// static foreach magic
 			foreach(v; V) {
 			case v:
-				i.popFront;
-				return RT(i, u);
+				retr.popFront;
+				return RT(retr, u);
 			}
 			default:
-				return RT(ParseError!R(msg, i));
+				return RT(Err!R(expects, false, i));
 		}
 	}
 }
@@ -68,29 +120,34 @@ struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 /// Match any character except those in reject
 struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 	alias Char = ElementType!(typeof(reject));
-	static immutable string msg = "not expecting one of \""~reject~"\"";
-	static auto opCall(R)(R i) if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
-		alias RT = ParseResult!(R, Unqual!(ElementType!R), ParseError!R);
+	enum string[] e = reject.map!"[a]".array;
+	static auto opCall(R)(in auto ref R i)
+	if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
+		alias RT = Result!(R, Unqual!(ElementType!R), Err!R);
 		alias V = aliasSeqOf!reject;
 		if (i.empty)
-			return RT(ParseError!R("eof", i));
+			return RT(Err!R(e, true, i));
 
 		auto u = i.front;
+		auto retr = i.save;
 		switch(u) {
 			// static foreach magic
 			foreach(v; V) {
 			case v:
-				return RT(ParseError!R(msg, i));
+				return RT(Err!R(e, true, i));
 			}
 			default:
-				i.popFront;
-				return RT(i, u);
+				retr.popFront;
+				return RT(retr, u);
 		}
 	}
 }
 
 /// Parse a sequences of digits, return an array of number
-alias digit(string _digits) = transform!(ch!_digits, (ch) => cast(int)_digits.indexOf(ch));
+template digit(string _digits) {
+	import std.string : indexOf;
+	alias digit = pipe!(ch!_digits, wrap!((ch) => cast(int)_digits.indexOf(ch)));
+}
 
 immutable string lower = "qwertyuiopasdfghjklzxcvbnm";
 immutable string upper = "QWERTYUIOPASDFGHJKLZXCVBNM";
@@ -105,7 +162,7 @@ immutable string digits = "0123456789";
 */
 template number(string accept = digits, int base = 10) if (accept.length == base) {
 	import std.algorithm.iteration;
-	alias number = transform!(many!(digit!accept), (x) => x.reduce!((a,b) => a*base+b));
+	alias number = pipe!(many!(digit!accept), wrap!((x) => x.reduce!((a,b) => a*base+b)));
 }
 
 ///
@@ -129,16 +186,19 @@ unittest {
 alias word(alias accept = alphabet) = many!(ch!accept);
 
 /// Parse an identifier, starts with a letter or _, followed by letter, _, or digits
-auto identifier(R)(R i) if (isForwardRange!R) {
+auto identifier(R)(in auto ref R i)
+if (isForwardRange!R) {
 	auto ret = ch!(alphabet~"_")(i);
-	alias RT = ParseResult!(R, ElementType!R[], ParseError!R);
+	alias RT = Result!(R, ElementType!R[], Err!R);
 	if (!ret.ok)
-		return RT(ParseError!R("Failed to parse a identifier", i));
+		return RT(ret.err);
 	auto ret2 = word!(alphabet~"_"~digits)(ret.cont);
 	ElementType!R[] str = [ret.v];
-	if (ret2.ok)
-		str ~= ret2.v;
-	return RT(ret2.cont, str);
+	if (ret2.ok) {
+		str ~= array(ret2.v);
+		return RT(ret2.cont, str);
+	}
+	return RT(ret.cont, str);
 }
 
 ///
@@ -151,13 +211,14 @@ unittest {
 }
 
 /// Parse escaped character, \n, \r, \b, \" and \\
-auto parse_escape1(R)(R i) if (isForwardRange!R) {
-	alias RT = ParseResult!(R, dchar, ParseError!R);
+auto parse_escape1(R)(in auto ref R i)
+if (isForwardRange!R) {
+	alias RT = Result!(R, dchar, Err!R);
 	auto r = seq!(
 		discard!(token!"\\"),
 		ch!"nbr\"\\")(i);
 	if (!r.ok)
-		return RT(ParseError!R("Failed to parse escape sequence", i));
+		return RT(r.err);
 	dchar res;
 	final switch(r.v.v!1) {
 	case 'n':
@@ -180,17 +241,18 @@ auto parse_escape1(R)(R i) if (isForwardRange!R) {
 }
 
 /// Parse a string enclosed by a pair of quotes, and containing escape sequence
-auto parse_string(R)(R i) if (isForwardRange!R) {
-	alias RT = ParseResult!(R, dchar[], ParseError!R);
+auto parse_string(R)(in auto ref R i)
+if (isForwardRange!R) {
+	alias RT = Result!(R, dchar[], Err!R);
 	auto r = between!(token!"\"",
-		transform_err!(many!(choice!(
+		many!(choice!(
 			parse_escape1,
 			not_ch!"\""
-		)), (x) => x[0]),
+		)),
 	token!"\"")(i);
 	if (!r.ok)
-		return RT(ParseError!R("Failed to parse a string", i));
-	return r;
+		return RT(r.err);
+	return RT(r.cont, array(r.v));
 }
 
 ///
@@ -203,8 +265,15 @@ unittest {
 }
 
 /// Skip white spaces
-alias whitespace = transform_err!(choice!(token!" ", token!"\n", token!"\t"),
-                                  (x) => typeof(x[0])("Not a whitespace", x[0].err_range));
+alias whitespace = pipe!(choice!(token!" ", token!"\n", token!"\t"));
+alias ws(alias func) = pipe!(seq!(func, skip!whitespace), wrap!"a.v!0");
+
+template token_ws(string t) {
+	auto token_ws(R)(in auto ref R i)
+	if (isForwardRange!R) {
+		return i.ws!(token!t);
+	}
+}
 
 ///
 unittest {
