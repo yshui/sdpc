@@ -10,9 +10,10 @@ import std.traits,
        std.stdio,
        std.typetuple,
        std.range;
+import std.algorithm : move;
 
 ///Match pattern `begin func end`, return the result of func.
-alias between(alias begin, alias func, alias end) = transform!(seq!(discard!begin, func, discard!end), (x) => x.v!1);
+alias between(alias begin, alias func, alias end) = transform!(seq!(discard!begin, func, discard!end), (ref x) => move(x.v!1));
 
 ///
 @safe unittest {
@@ -138,7 +139,48 @@ struct many(alias func, bool allow_none = false) {
 		static if (is(PR.DataType == void))
 			return many_r!(func, a=>a+1, 0uL, allow_none)(i);
 		else
-			return many_r!(func, (ref a,b)=>a~=b, cast(PR.DataType[])[], allow_none)(i);
+			return many_r!(func, (ref a, ref b) {
+				a.length++;
+				move(b, a[$-1]);
+				return a;
+			}, cast(PR.DataType[])[], allow_none)(i);
+	}
+}
+
+struct many_alloc(alias allocator, alias func, bool allow_none = false) {
+	import std.experimental.allocator;
+	import std.algorithm : moveEmplace;
+	struct _Arr(T, bool f = false) {
+		T[] storage;
+		static if (f) {
+			~this() {
+				import core.stdc.stdio;
+				allocator.dispose(storage);
+			}
+			@disable this(this);
+			alias storage this;
+		} else {
+			size_t len;
+		}
+	}
+	static auto append(T)(ref _Arr!T a, ref T b) {
+		if (a.len >= a.storage.length) {
+			if (a.storage)
+				allocator.expandArray(a.storage, a.storage.length);
+			else
+				a.storage = allocator.makeArray!T(4);
+		}
+		moveEmplace(b, a.storage[a.len]);
+		a.len++;
+		return a;
+	}
+	static auto opCall(R)(R i) if (isForwardRange!R) {
+		alias PR = typeof(func(i));
+		alias DT = PR.DataType;
+		static if (is(DT == void))
+			return many_r!(func, a=>a+1, 0uL, allow_none)(i);
+		else
+			return transform!(many_r!(func, append, _Arr!DT(), allow_none), x => _Arr!(DT, true)(x.storage[0..x.len]))(i);
 	}
 }
 
@@ -188,6 +230,7 @@ private struct DTTuple(T...) {
 */
 struct seq(T...) {
 	static auto opCall(R)(R i) if (isForwardRange!R) {
+		import std.algorithm : move;
 		alias GetDT(A) = A.DataType;
 		alias GetET(A) = A.ErrType;
 		alias PRS = staticMap!(ParserReturnType!R, T);
@@ -202,7 +245,7 @@ struct seq(T...) {
 			if (!ret.ok)
 				return RT(ret.err);
 			static if (!is(PRS[id].DataType == void))
-				res.v!id = ret.v;
+				res.v!id = move(ret.v);
 			last_range = ret.cont;
 		}
 		return RT(last_range, res);

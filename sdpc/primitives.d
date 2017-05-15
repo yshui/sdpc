@@ -29,7 +29,7 @@ template staticEnumerate(T...) {
 		alias T = xT;
 		static if (!is(T == void)) {
 			T value;
-			alias value this;
+			//alias value this;
 		}
 	}
 	template E(uint start, T...) {
@@ -70,7 +70,7 @@ if (isForwardRange!R && !is(E: R) && is(typeof(
 ))) {
 @safe:
 	/// Indicates whether the parser succeeded
-	immutable(bool) ok;
+	bool ok;
 
 	private union {
 		R r_;
@@ -101,7 +101,7 @@ if (isForwardRange!R && !is(E: R) && is(typeof(
 	static if (!is(T == void)) {
 		private T data_;
 
-		@property auto v() {
+		@property ref auto v() {
 			assert(ok);
 			return data_;
 		}
@@ -112,7 +112,7 @@ if (isForwardRange!R && !is(E: R) && is(typeof(
 			return U(e);
 		}
 
-		@trusted static auto apply(alias func)(auto ref ParseResult!(R, T, E) i) if (is(typeof(func(i.data_)))){
+		@trusted static auto apply(alias func)(auto ref ParseResult!(R, T, E) i) { //if (is(typeof(func(i.data_)))){
 			alias RT = typeof(func(i.data_));
 			alias PR = ParseResult!(R, RT, E);
 			if (i.ok) {
@@ -124,9 +124,10 @@ if (isForwardRange!R && !is(E: R) && is(typeof(
 			return PR(i.e_);
 		}
 
-		@trusted this(R r, T d) {
+		@trusted this()(R r, auto ref T d) {
+			import std.algorithm : move;
 			this.r_ = r;
-			this.data_ = d;
+			this.data_ = move(d);
 			this.ok = true;
 		}
 	} else {
