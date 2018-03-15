@@ -174,7 +174,6 @@ if (isForwardRange!R) {
 	} body {
 		return _r.save;
 	}
-	pragma(msg, typeof(this).sizeof);
 }
 
 interface ICache(R) if (isForwardRange!R) {
