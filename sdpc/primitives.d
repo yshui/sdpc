@@ -142,8 +142,9 @@ if (isForwardRange!R) {
 		}
 
 		this(R r, T d) {
+			import std.algorithm.mutation : move;
 			this._r = r;
-			this.data_ = d;
+			this.data_ = move(d);
 			this.ok = true;
 		}
 	} else {
@@ -198,21 +199,22 @@ template wrap(alias func) {
 	}
 	auto wrap(R, T, E)(auto ref Result!(R, T, E) r)
 	if (!is(T == void)) {
+		import std.algorithm.mutation : move;
 		// See if we can call bfun
-		static if (is(typeof(bfun(r.v, r.span)))) {
-			alias RT = typeof(bfun(r.v, r.span));
+		static if (is(typeof(bfun(move(r.v), r.span)))) {
+			alias RT = typeof(bfun(move(r.v), r.span));
 			enum isBinary = true;
 		} else {
-			alias RT = typeof(ufun(r.v));
+			alias RT = typeof(ufun(move(r.v)));
 			enum isBinary = false;
 		}
 		alias PR = Result!(R, RT, E);
 		if (r.ok) {
 			static if (!is(RT == void)) {
 				static if (isBinary)
-					return PR(r.cont.save, bfun(r.v, r.span));
+					return PR(r.cont.save, bfun(move(r.v), r.span));
 				else
-					return PR(r.cont.save, ufun(r.v));
+					return PR(r.cont.save, ufun(move(r.v)));
 			} else
 				return PR(r.cont.save);
 		}

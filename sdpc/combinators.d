@@ -10,10 +10,13 @@ import std.traits,
        std.stdio,
        std.typetuple,
        std.functional,
-       std.variant;
+       std.variant,
+       std.experimental.allocator;
+
+import std.experimental.allocator.gc_allocator : GCAllocator;
 
 ///Match pattern `begin func end`, return the result of func.
-alias between(alias begin, alias func, alias end) = pipe!(seq!(discard!begin, func, discard!end), wrap!"a.v!1");
+alias between(alias begin, alias func, alias end) = pipe!(seq!(discard!begin, func, discard!end), wrap!"move(a.v!1)");
 
 ///
 unittest {
@@ -71,13 +74,17 @@ struct choice(T...) {
   Return data type will be an array of p's return data type
 */
 struct chain(alias p, alias delim, bool allow_empty=false) {
-	static auto opCall(R)(in auto ref R i)
+	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
 	if (isForwardRange!R) {
+		import containers.dynamicarray : DynamicArray;
+		import std.experimental.allocator.common : stateSize;
+		import std.algorithm.mutation : move;
 		auto ret = p(i);
 		alias T = typeof(ret);
 		alias DT = typeof(delim(i));
 		alias RDT = DTTuple!(T.DataType, DT.DataType);
-		alias RT = Result!(R, RDT[], T.ErrType);
+		alias RDTA = DynamicArray!(RDT, typeof(Allocator));
+		alias RT = Result!(R, RDTA, T.ErrType);
 		if (!ret.ok) {
 			static if (allow_empty)
 				return RT(i, []);
@@ -85,7 +92,11 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 				return RT(ret.err);
 		}
 
-		RDT[] res;
+		static if (stateSize!(typeof(Allocator))) {
+			auto res = RDTA(Allocator);
+		} else {
+			RDTA res;
+		}
 		RDT tmp;
 		static if (!is(T.DataType == void))
 			tmp.v!0 = ret.v;
@@ -107,7 +118,7 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 			last_range = pret.cont;
 		}
 
-		return RT(last_range, res);
+		return RT(last_range, move(res));
 	}
 }
 
@@ -116,7 +127,7 @@ unittest {
 	import sdpc.parsers;
 	import std.algorithm;
 
-	alias calc = pipe!(chain!(number!(), token!"+"), wrap!((x) => x.fold!"a+b.v!0"(0)));
+	alias calc = pipe!(chain!(number!(), token!"+"), wrap!((x) => x[].fold!"a+b.v!0"(0)));
 	auto i = "1+2+3+4+5";
 	auto r = calc(i);
 	assert(r.ok);
@@ -179,14 +190,20 @@ struct many_range(alias func, bool allow_none = false) {
   values into an array, or return number of matches
 */
 struct many(alias func, bool allow_none = false) {
-	static auto opCall(R)(in auto ref R i)
+	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
 	if (isForwardRange!R) {
+		import containers.dynamicarray : DynamicArray;
+		import std.algorithm.mutation : move;
 		alias PR = typeof(func(i));
 		static if (is(PR.DataType == void))
 			alias PDTA = void;
 		else {
-			alias PDTA = PR.DataType[];
-			PR.DataType[] res;
+			alias PDTA = DynamicArray!(PR.DataType, typeof(Allocator));
+			static if (stateSize!(typeof(Allocator))) {
+				auto res = PDTA(Allocator);
+			} else {
+				PDTA res;
+			}
 		}
 		bool none = true;
 		alias RT = Result!(R, PDTA, PR.ErrType);
@@ -197,7 +214,7 @@ struct many(alias func, bool allow_none = false) {
 			if (!ret.ok) {
 				if (allow_none || !none) {
 					static if (!is(PDTA == void))
-						return RT(last_range, res);
+						return RT(last_range, move(res));
 					else
 						return RT(last_range);
 				} else
@@ -280,10 +297,10 @@ struct seq(T...) {
 					return RT(ret.err);
 			}
 			static if (!is(PRS[id].DataType == void))
-				res.v!id = ret.v;
+				res.v!id = move(ret.v);
 			last_range = ret.cont;
 		}
-		return RT(last_range, res);
+		return RT(last_range, move(res));
 	}
 }
 

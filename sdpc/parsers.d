@@ -16,6 +16,8 @@ import std.traits,
        std.algorithm;
 import std.range : ElementType;
 import std.array : array;
+import std.experimental.allocator;
+import std.experimental.allocator.gc_allocator : GCAllocator;
 public:
 
 ///Consumes nothing, always return OK
@@ -78,15 +80,17 @@ struct Err(R) {
 /// Match a string, return the matched string
 struct token(string t) {
 	import std.algorithm.comparison;
+	import containers;
 	enum string[] expects = [t];
-	static auto opCall(R)(in auto ref R i)
+	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
 	if (isForwardRange!R) {
 		import std.range : take, drop;
 		alias RT = Result!(R, string, Err!R);
 		auto str = take(i, t.length);
 		auto retr = i.save.drop(t.length);
-		if (equal(str.save, t))
+		if (equal(str.save, t)) {
 			return RT(retr, t);
+		}
 		return RT(Err!R(expects, false, i.save));
 	}
 }
@@ -95,7 +99,7 @@ struct token(string t) {
 struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 	alias Char = ElementType!(typeof(accept));
 	enum string[] expects = accept.map!"[a]".array;
-	static auto opCall(R)(in auto ref R i)
+	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
 	if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
 		alias RT = Result!(R, Unqual!(ElementType!R), Err!R);
 		alias V = aliasSeqOf!accept;
@@ -121,7 +125,7 @@ struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
 struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 	alias Char = ElementType!(typeof(reject));
 	enum string[] e = reject.map!"[a]".array;
-	static auto opCall(R)(in auto ref R i)
+	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
 	if (isForwardRange!R && is(typeof(Char.init == ElementType!R.init))) {
 		alias RT = Result!(R, Unqual!(ElementType!R), Err!R);
 		alias V = aliasSeqOf!reject;
@@ -146,7 +150,7 @@ struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 /// Parse a sequences of digits, return an array of number
 template digit(string _digits) {
 	import std.string : indexOf;
-	alias digit = pipe!(ch!_digits, wrap!((ch) => cast(int)_digits.indexOf(ch)));
+	alias digit = pipe!(ch!_digits, wrap!(ch => cast(int)_digits.indexOf(ch)));
 }
 
 immutable string lower = "qwertyuiopasdfghjklzxcvbnm";
@@ -162,7 +166,7 @@ immutable string digits = "0123456789";
 */
 template number(string accept = digits, int base = 10) if (accept.length == base) {
 	import std.algorithm.iteration;
-	alias number = pipe!(many!(digit!accept), wrap!((x) => x.reduce!((a,b) => a*base+b)));
+	alias number = pipe!(many!(digit!accept), wrap!((x) => x[].reduce!((a,b) => a*base+b)));
 }
 
 ///
@@ -195,7 +199,7 @@ if (isForwardRange!R) {
 	auto ret2 = word!(alphabet~"_"~digits)(ret.cont);
 	ElementType!R[] str = [ret.v];
 	if (ret2.ok) {
-		str ~= array(ret2.v);
+		str ~= array(ret2.v[]);
 		return RT(ret2.cont, str);
 	}
 	return RT(ret.cont, str);
@@ -252,7 +256,7 @@ if (isForwardRange!R) {
 	token!"\"")(i);
 	if (!r.ok)
 		return RT(r.err);
-	return RT(r.cont, array(r.v));
+	return RT(r.cont, array(r.v[]));
 }
 
 ///
