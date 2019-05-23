@@ -78,7 +78,6 @@ auto token(R)(in auto ref R i)
 if (isForwardRange!R) {
 	import std.algorithm.comparison;
 	enum string[] expects = [t];
-	alias RT = Result!(R, string, Err!R);
 	static struct Token {
 		bool empty;
 		string front;

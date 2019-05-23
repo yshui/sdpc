@@ -116,155 +116,12 @@ struct Span {
 	}
 }
 
-/**
-  Parse result
-  Params:
-	R = Range type
-	E = Error type, must be copyable, non reference type,
-	    or void, which means the parser can never fail
-	T = Data type, used for returning data from parser
- */
-struct Result(R, T = Unit, E = ulong)
-if (isForwardRange!R && !is(T == void) && !is(E == void)) {
-//&& !is(E: R) && is(typeof(
-//    {immutable(E) foo = E.init; E copy = foo;}
-//))) {
-	/// Indicates whether the parser succeeded
-	bool ok = false;
-
-	private R _r;
-	private E _e;
-
-	/// The data type, for convenience 
-	alias DataType = T;
-
-	alias ErrType = E;
-
-	alias RangeType = R;
-
-	Span span;
-	version(D_Ddoc) {
-		/// Return the data, only available if T != void,
-		/// fails if ok != true
-		@property T v();
-
-		/// Result is covariant on its data type
-		auto opCast(U: Result!(R2, E2, T2), R2, E2, T2)() if (is(typeof(cast(T2)T.init)));
-
-		/// Create a parse result (implies ok = true)
-		this(R r, T d);
-
-		/// Ditto
-		this(R r);
-	}
-
-	private T data_;
-
-	@property ref auto v() in {
-		assert(ok);
-	} body {
-		return data_;
-	}
-
-	auto opCast(U: Result!(R, T2, E), T2)() if (is(typeof(cast(T2)T.init))) {
-		if (i.ok)
-			return U(r.save, cast(T2)data_);
-		return U(_e);
-	}
-
-	this()(R r, auto ref scope T d) {
-		import std.algorithm.mutation : move;
-		this._r = r;
-		this.data_ = move(d);
-		this.ok = true;
-	}
-
-	/// Get error information
-	@property E err() in {
-		assert(!ok);
-	} body {
-		return _e;
-	}
-
-	/// Create a parse result with error (implies ok = false)
-	this(E e) {
-		this.ok = false;
-		this._e = e;
-		this.data_ = T.init;
-	}
-
-	/// Get result range, where the following parsers should continue parsing
-	@property R cont() in {
-		assert(ok);
-	} body {
-		return _r.save;
-	}
-}
-
 interface ICache(R) if (isForwardRange!R) {
 }
 
 import std.experimental.allocator.gc_allocator : GCAllocator;
 class Cache(R, Allocator=GCAllocator) : ICache!R {
 
-}
-
-/**
-  Take a function `func` that takes type T, and return a function that
-  takes Result!(_, T, _). The returned function will apply `func` on the
-  data part of Result.
-*/
-template wrap(alias func) {
-	alias ufun = unitizeFunc!(unaryFun!func);
-	alias bfun = unitizeFunc!(binaryFun!func);
-	auto wrap(R, T, E)(auto ref Result!(R, T, E) r)
-	if (is(T == void)) {
-		return r;
-	}
-	auto wrap(R, T, E)(auto ref Result!(R, T, E) r)
-	if (!is(T == void)) {
-		import std.algorithm.mutation : move;
-		// See if we can call bfun
-		static if (is(typeof(bfun(T.init, Span.init)))) {
-			alias RT = typeof(bfun(T.init, Span.init));
-			enum isBinary = true;
-		} else {
-			alias RT = typeof(ufun(T.init));
-			enum isBinary = false;
-		}
-		static assert(!is(RT == void), typeof(ufun("")).stringof);
-		alias PR = Result!(R, RT, E);
-		if (r.ok) {
-			static if (isBinary)
-				return PR(r.cont.save, bfun(move(r.v), r.span));
-			else
-				return PR(r.cont.save, ufun(move(r.v)));
-		}
-		return PR(r.err);
-	}
-}
-
-/**
-  Take a function `func` that takes type E, and return a function that
-  takes Result!(_, _, E). The returned function will apply `func` on the
-  error part of Result.
-*/
-template wrap_err(alias func) {
-	alias ufun = unitizeFunc!(unaryFun!func);
-	auto wrap_err(R, T, E)(auto ref Result!(R, T, E) r)
-	if (is(E == void)) {
-		assert(r.ok);
-		return r;
-	}
-	auto wrap_err(R, T, E)(auto ref Result!(R, T, E) r)
-	if (is(typeof(ufun(E.init)))) {
-		alias RT = typeof(ufun(r.err));
-		alias PR = Result!(R, T, RT);
-		if (r.ok) {
-			return PR(r.cont, r.v);
-		}
-		return PR(ufun(r.err));
-	}
 }
 
 /// Keep track of line and column
@@ -330,6 +187,7 @@ inout(R)[] save(R)(inout(R[]) i) {
 public import std.range.primitives : popFront, front, empty;
 
 ///
+version(legacy)
 unittest {
 	PositionRange!string a;
 	import std.functional;
