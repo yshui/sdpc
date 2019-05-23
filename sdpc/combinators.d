@@ -12,11 +12,12 @@ import std.traits,
        std.functional,
        std.variant,
        std.experimental.allocator;
+import std.typecons : Tuple;
 
 import std.experimental.allocator.gc_allocator : GCAllocator;
 
 ///Match pattern `begin func end`, return the result of func.
-alias between(alias begin, alias func, alias end) = pipe!(seq!(discard!begin, func, discard!end), wrap!"move(a.v!1)");
+alias between(alias begin, alias func, alias end) = pipe!(seq!(discard!begin, func, discard!end), wrap!"move(a[1])");
 
 ///
 unittest {
@@ -74,7 +75,7 @@ struct choice(T...) {
   Return data type will be an array of p's return data type
 */
 struct chain(alias p, alias delim, bool allow_empty=false) {
-	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
+	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
 		import containers.dynamicarray : DynamicArray;
 		import std.experimental.allocator.common : stateSize;
@@ -82,8 +83,8 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 		auto ret = p(i);
 		alias T = typeof(ret);
 		alias DT = typeof(delim(i));
-		alias RDT = DTTuple!(T.DataType, DT.DataType);
-		alias RDTA = DynamicArray!(RDT, typeof(Allocator));
+		alias RDT = Tuple!(T.DataType, DT.DataType);
+		alias RDTA = DynamicArray!(RDT, RCIAllocator*);
 		alias RT = Result!(R, RDTA, T.ErrType);
 		if (!ret.ok) {
 			static if (allow_empty)
@@ -92,14 +93,9 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 				return RT(ret.err);
 		}
 
-		static if (stateSize!(typeof(Allocator))) {
-			auto res = RDTA(Allocator);
-		} else {
-			RDTA res;
-		}
+		auto res = RDTA(&theAllocator());
 		RDT tmp;
-		static if (!is(T.DataType == void))
-			tmp.v!0 = ret.v;
+		tmp[0] = ret.v;
 		res ~= tmp;
 
 		auto last_range = ret.cont;
@@ -107,13 +103,11 @@ struct chain(alias p, alias delim, bool allow_empty=false) {
 			auto dret = delim(last_range);
 			if (!dret.ok)
 				break;
-			static if (!is(DT.DataType == void))
-				tmp.v!1 = dret.v;
+			tmp[1] = dret.v;
 			auto pret = p(dret.cont);
 			if (!pret.ok)
 				break;
-			static if (!is(T.DataType == void))
-				tmp.v!0 = pret.v;
+			tmp[0] = pret.v;
 			res ~= tmp;
 			last_range = pret.cont;
 		}
@@ -127,7 +121,7 @@ unittest {
 	import sdpc.parsers;
 	import std.algorithm;
 
-	alias calc = pipe!(chain!(number!(), token!"+"), wrap!((x) => x[].fold!"a+b.v!0"(0)));
+	alias calc = pipe!(chain!(number!(), token!"+"), wrap!((ref x) => x[].fold!"a+b[0]"(0)));
 	auto i = "1+2+3+4+5";
 	auto r = calc(i);
 	assert(r.ok);
@@ -135,62 +129,11 @@ unittest {
 }
 
 /**
-  Match `func*` or `func+`
-
-  ReturnType.v is a InputRange of the results
-*/
-struct many_range(alias func, bool allow_none = false) {
-@nogc:
-	static auto opCall(R)(in auto ref R i)
-	if (isForwardRange!R) {
-		alias PR = typeof(func(i));
-		static struct ManyResults {
-			private R curr;
-			private PR pr;
-			bool empty;
-			ulong length = 0;
-			this(R i) {
-				pr = func(i);
-				empty = !pr.ok;
-				if (pr.ok)
-					curr = pr.cont;
-			}
-			static if (!is(PR.DataType == void)) {
-				@property auto front() {
-					return pr.v;
-				}
-				void popFront() {
-					pr = func(curr);
-					empty = !pr.ok;
-					if (pr.ok)
-						curr = pr.cont;
-				}
-			}
-		}
-		alias RT = Result!(R, ManyResults, PR.ErrType);
-		auto res = ManyResults(i);
-
-		auto last_range = i.save;
-		while(true) {
-			auto ret = func(last_range);
-			if (!ret.ok) {
-				if (allow_none || res.length)
-					return RT(last_range, res);
-				else
-					return RT(ret.err);
-			}
-			res.length++;
-			last_range = ret.cont;
-		}
-	}
-}
-
-/**
   Like `many_r` but with default `reduce` function that put all return
   values into an array, or return number of matches
 */
 struct many(alias func, bool allow_none = false) {
-	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
+	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
 		import containers.dynamicarray : DynamicArray;
 		import std.algorithm.mutation : move;
@@ -198,12 +141,8 @@ struct many(alias func, bool allow_none = false) {
 		static if (is(PR.DataType == void))
 			alias PDTA = void;
 		else {
-			alias PDTA = DynamicArray!(PR.DataType, typeof(Allocator));
-			static if (stateSize!(typeof(Allocator))) {
-				auto res = PDTA(Allocator);
-			} else {
-				PDTA res;
-			}
+			alias PDTA = DynamicArray!(PR.DataType, RCIAllocator*);
+			auto res = PDTA(&theAllocator());
 		}
 		bool none = true;
 		alias RT = Result!(R, PDTA, PR.ErrType);
@@ -244,27 +183,6 @@ unittest {
 	assert(r3.cont.length); //But the end-of-buffer is not reached
 }
 
-// We need this because TypeTuple don't allow `void` in it.
-private struct DTTuple(T...) {
-	import std.typetuple;
-	import std.meta;
-	enum notVoid(T) = !is(T.T == void);
-	template idMatch(uint id) {
-		enum idMatch(T) = T.id == id;
-	}
-	alias E = staticEnumerate!T;
-	alias E2 = Filter!(notVoid, E);
-	private TypeTuple!E2 data;
-
-	ref auto v(uint id)() inout {
-		enum rid = staticIndexOf!(E[id], E2);
-		static if (rid != -1)
-			return data[rid].value;
-		else
-			return;
-	}
-}
-
 /**
   Appply a sequence of parsers one after another.
 
@@ -275,6 +193,20 @@ private struct DTTuple(T...) {
 */
 struct seq(T...) {
 	enum notVoid(T) = !is(T == void);
+	private static string genParserCalls(int n) {
+		import std.range : iota;
+		import std.algorithm : map;
+		string ret = "";
+		foreach(i; 0..n) {
+			ret ~= format("auto ret%s = T[%s](last_range);", i, i);
+			ret ~= format("if(!ret%s.ok) return RT(ret%s.err);", i, i);
+			ret ~= format("last_range = ret%s.cont;", i);
+		}
+
+		auto retstr = iota(n).map!(a => format("move(ret%s.v)", a)).join(",");
+		ret ~= "return RT(last_range, Tuple!PDT("~retstr~"));";
+		return ret;
+	}
 	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
 		import std.algorithm : move;
@@ -285,22 +217,9 @@ struct seq(T...) {
 		alias PET = Filter!(notVoid, staticMap!(GetET, PRS));
 		static assert(allSameType!PET);
 
-		alias RT = Result!(R, DTTuple!PDT, PET[0]);
-		DTTuple!PDT res;
+		alias RT = Result!(R, Tuple!PDT, PET[0]);
 		auto last_range = i.save;
-		foreach(id, p; T) {
-			auto ret = p(last_range);
-			if (!ret.ok) {
-				static if (is(typeof(ret).ErrType == void))
-					assert(0);
-				else
-					return RT(ret.err);
-			}
-			static if (!is(PRS[id].DataType == void))
-				res.v!id = move(ret.v);
-			last_range = ret.cont;
-		}
-		return RT(last_range, move(res));
+		mixin(genParserCalls(T.length));
 	}
 }
 
@@ -310,15 +229,15 @@ unittest {
 	auto i = "abcde";
 	auto r4 = seq!(token!"a", token!"b", token!"c", token!"d", token!"e")(i);
 	assert(r4.ok);
-	assert(r4.v.v!0 == "a");
-	assert(r4.v.v!1 == "b");
-	assert(r4.v.v!2 == "c");
-	assert(r4.v.v!3 == "d");
-	assert(r4.v.v!4 == "e");
+	assert(r4.v[0] == "a");
+	assert(r4.v[1] == "b");
+	assert(r4.v[2] == "c");
+	assert(r4.v[3] == "d");
+	assert(r4.v[4] == "e");
 
 	auto r5 = seq!(token!"a")(i); //seq with single argument.
 	assert(r5.ok);
-	assert(r5.v.v!0 == "a");
+	assert(r5.v[0] == "a");
 }
 
 /** Optionally matches `p`
@@ -359,7 +278,7 @@ struct lookahead(alias u, bool negative = false){
 	if (isForwardRange!R) {
 		auto r = u(i);
 		alias PR = typeof(r);
-		alias RT = Result!(R, void, PR.ErrType);
+		alias RT = Result!(R, Unit, PR.ErrType);
 		static if (negative) {
 			if (r.ok)
 				return RT(RT.ErrType.init);
@@ -367,7 +286,7 @@ struct lookahead(alias u, bool negative = false){
 				return RT(i);
 		} else {
 			if (r.ok)
-				return RT(i);
+				return RT(i, []);
 			else
 				return RT(r.err);
 		}
@@ -404,5 +323,5 @@ unittest {
 alias skip(alias p) = discard_err!(discard!(many!(discard!p, true)));
 
 ///Match `p` but discard the result
-alias discard(alias p) = pipe!(p, wrap!((_) { }));
-alias discard_err(alias p) = pipe!(p, wrap_err!((_) { }));
+alias discard(alias p) = pipe!(p, wrap!((ref _) { }));
+alias discard_err(alias p) = pipe!(p, wrap_err!((ref _) { }));

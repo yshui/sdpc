@@ -12,6 +12,35 @@ import std.algorithm,
        std.variant;
 import std.range : isInputRange, ElementType;
 
+/// The unit type
+alias Unit = byte[0];
+
+/// Convert void to Unit
+template unitizeType(T) {
+	static if (is(T == void))
+		alias Unitize = Unit;
+	else
+		alias Unitize = T;
+}
+
+/// Convert a function that returns void, to function that returns Unit
+template unitizeFunc(func...) if (func.length == 1) {
+	pragma(inline) auto unitizeFunc(Args...)(Args args) if (is(typeof(func[0](args)))) {
+		static if (is(typeof(func[0](args)) == void)) {
+			func[0](args);
+			return Unit.init;
+		} else {
+			return func[0](args);
+		}
+	}
+}
+
+unittest {
+	void testfn() {}
+
+	pragma(msg, typeof(unitizeFunc!testfn()));
+	static assert(!is(typeof(unitizeFunc!testfn()) == void));
+}
 /**
   Get the return types of a parser
   Params:
@@ -89,19 +118,16 @@ struct Span {
 	    or void, which means the parser can never fail
 	T = Data type, used for returning data from parser
  */
-struct Result(R, T = void, E = ulong)
-if (isForwardRange!R) {
+struct Result(R, T = Unit, E = ulong)
+if (isForwardRange!R && !is(T == void) && !is(E == void)) {
 //&& !is(E: R) && is(typeof(
 //    {immutable(E) foo = E.init; E copy = foo;}
 //))) {
 	/// Indicates whether the parser succeeded
 	bool ok = false;
 
-	static if (!is(E == void)) {
-		private R _r;
-		private E _e;
-	} else
-		private R _r;
+	private R _r;
+	private E _e;
 
 	/// The data type, for convenience 
 	alias DataType = T;
@@ -126,47 +152,39 @@ if (isForwardRange!R) {
 		this(R r);
 	}
 
-	static if (!is(T == void)) {
-		private T data_;
+	private T data_;
 
-		@property ref auto v() in {
-			assert(ok);
-		} body {
-			return data_;
-		}
-
-		auto opCast(U: Result!(R, T2, E), T2)() if (is(typeof(cast(T2)T.init))) {
-			if (i.ok)
-				return U(r.save, cast(T2)data_);
-			return U(_e);
-		}
-
-		this(R r, T d) {
-			import std.algorithm.mutation : move;
-			this._r = r;
-			this.data_ = move(d);
-			this.ok = true;
-		}
-	} else {
-		this(R r) {
-			this._r = r;
-			this.ok = true;
-		}
+	@property ref auto v() in {
+		assert(ok);
+	} body {
+		return data_;
 	}
 
-	static if (!is(E == void)) {
-		/// Get error information
-		@property E err() in {
-			assert(!ok);
-		} body {
-			return _e;
-		}
+	auto opCast(U: Result!(R, T2, E), T2)() if (is(typeof(cast(T2)T.init))) {
+		if (i.ok)
+			return U(r.save, cast(T2)data_);
+		return U(_e);
+	}
 
-		/// Create a parse result with error (implies ok = false)
-		this(E e) {
-			this.ok = false;
-			this._e = e;
-		}
+	this()(R r, auto ref scope T d) {
+		import std.algorithm.mutation : move;
+		this._r = r;
+		this.data_ = move(d);
+		this.ok = true;
+	}
+
+	/// Get error information
+	@property E err() in {
+		assert(!ok);
+	} body {
+		return _e;
+	}
+
+	/// Create a parse result with error (implies ok = false)
+	this(E e) {
+		this.ok = false;
+		this._e = e;
+		this.data_ = T.init;
 	}
 
 	/// Get result range, where the following parsers should continue parsing
@@ -191,8 +209,8 @@ class Cache(R, Allocator=GCAllocator) : ICache!R {
   data part of Result.
 */
 template wrap(alias func) {
-	alias ufun = unaryFun!func;
-	alias bfun = binaryFun!func;
+	alias ufun = unitizeFunc!(unaryFun!func);
+	alias bfun = unitizeFunc!(binaryFun!func);
 	auto wrap(R, T, E)(auto ref Result!(R, T, E) r)
 	if (is(T == void)) {
 		return r;
@@ -201,27 +219,22 @@ template wrap(alias func) {
 	if (!is(T == void)) {
 		import std.algorithm.mutation : move;
 		// See if we can call bfun
-		static if (is(typeof(bfun(move(r.v), r.span)))) {
-			alias RT = typeof(bfun(move(r.v), r.span));
+		static if (is(typeof(bfun(T.init, Span.init)))) {
+			alias RT = typeof(bfun(T.init, Span.init));
 			enum isBinary = true;
 		} else {
-			alias RT = typeof(ufun(move(r.v)));
+			alias RT = typeof(ufun(T.init));
 			enum isBinary = false;
 		}
+		static assert(!is(RT == void), typeof(ufun("")).stringof);
 		alias PR = Result!(R, RT, E);
 		if (r.ok) {
-			static if (!is(RT == void)) {
-				static if (isBinary)
-					return PR(r.cont.save, bfun(move(r.v), r.span));
-				else
-					return PR(r.cont.save, ufun(move(r.v)));
-			} else
-				return PR(r.cont.save);
+			static if (isBinary)
+				return PR(r.cont.save, bfun(move(r.v), r.span));
+			else
+				return PR(r.cont.save, ufun(move(r.v)));
 		}
-		static if (is(E == void))
-			assert(0);
-		else
-			return PR(r.err);
+		return PR(r.err);
 	}
 }
 
@@ -231,7 +244,7 @@ template wrap(alias func) {
   error part of Result.
 */
 template wrap_err(alias func) {
-	alias ufun = unaryFun!func;
+	alias ufun = unitizeFunc!(unaryFun!func);
 	auto wrap_err(R, T, E)(auto ref Result!(R, T, E) r)
 	if (is(E == void)) {
 		assert(r.ok);
@@ -242,15 +255,9 @@ template wrap_err(alias func) {
 		alias RT = typeof(ufun(r.err));
 		alias PR = Result!(R, T, RT);
 		if (r.ok) {
-			static if (is(T == void))
-				return PR(r.cont);
-			else
-				return PR(r.cont, r.v);
+			return PR(r.cont, r.v);
 		}
-		static if (is(RT == void))
-			assert(0);
-		else
-			return PR(ufun(r.err));
+		return PR(ufun(r.err));
 	}
 }
 

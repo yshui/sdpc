@@ -166,7 +166,7 @@ immutable string digits = "0123456789";
 */
 template number(string accept = digits, int base = 10) if (accept.length == base) {
 	import std.algorithm.iteration;
-	alias number = pipe!(many!(digit!accept), wrap!((x) => x[].reduce!((a,b) => a*base+b)));
+	alias number = pipe!(many!(digit!accept), wrap!((ref x) => x[].reduce!((a,b) => a*base+b)));
 }
 
 ///
@@ -224,7 +224,7 @@ if (isForwardRange!R) {
 	if (!r.ok)
 		return RT(r.err);
 	dchar res;
-	final switch(r.v.v!1) {
+	final switch(r.v[1]) {
 	case 'n':
 		res = '\n';
 		break;
@@ -270,7 +270,7 @@ unittest {
 
 /// Skip white spaces
 alias whitespace = pipe!(choice!(token!" ", token!"\n", token!"\t"));
-alias ws(alias func) = pipe!(seq!(func, skip!whitespace), wrap!"a.v!0");
+alias ws(alias func) = pipe!(seq!(func, skip!whitespace), wrap!"a[0]");
 
 template token_ws(string t) {
 	auto token_ws(R)(in auto ref R i)
