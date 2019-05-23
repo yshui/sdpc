@@ -20,11 +20,6 @@ import std.experimental.allocator;
 import std.experimental.allocator.gc_allocator : GCAllocator;
 public:
 
-///Consumes nothing, always return OK
-auto nop(R)(in auto ref R i) if (isForwardRange!R) {
-	return Result!R(i);
-}
-
 struct Err(R) {
 	const(string[])[] e;
 	const(bool)[] inv;
@@ -78,50 +73,86 @@ struct Err(R) {
 }
 
 /// Match a string, return the matched string
-struct token(string t) {
+template token(string t) {
+auto token(R)(in auto ref R i)
+if (isForwardRange!R) {
 	import std.algorithm.comparison;
-	import containers;
 	enum string[] expects = [t];
-	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
-	if (isForwardRange!R) {
-		import std.range : take, drop;
-		alias RT = Result!(R, string, Err!R);
-		auto str = take(i, t.length);
-		auto retr = i.save.drop(t.length);
-		if (equal(str.save, t)) {
-			return RT(retr, t);
+	alias RT = Result!(R, string, Err!R);
+	static struct Token {
+		bool empty;
+		string front;
+		Err!R err;
+		R cont;
+
+		void popFront() {
+			import std.range : take, drop, popFrontExactly;
+			auto str = take(cont.save, t.length);
+			if (equal(str, t)) {
+				front = t;
+				empty = false;
+				cont.popFrontExactly(t.length);
+				return;
+			}
+
+			empty = true;
+			err = Err!R(expects, false, cont.save);
 		}
-		return RT(Err!R(expects, false, i.save));
+
+		this(R i) {
+			cont = i;
+			popFront;
+		}
 	}
-}
+	return Token(i);
+}}
 
 /// Match any character in accept
-struct ch(alias accept) if (is(ElementType!(typeof(accept)))) {
-	alias Char = ElementType!(typeof(accept));
-	enum string[] expects = accept.map!"[a]".array;
-	static auto opCall(R, alias Allocator = GCAllocator.instance)(in auto ref R i)
-	if (isForwardRange!R && is(typeof(ElementType!R.init == Char.init))) {
-		alias RT = Result!(R, Unqual!(ElementType!R), Err!R);
-		alias V = aliasSeqOf!accept;
-		if (i.empty)
-			return RT(Err!R(expects, false, i));
+template ch(alias accept) if (is(ElementType!(typeof(accept)))) {
+auto ch(R)(in auto ref R i) {
+	static const(string[])[] expects = [accept.map!"[a]".array];
+	static bool[] inv = [false];
+	alias V = aliasSeqOf!accept;
+	struct Ch {
+		bool empty;
+		ElementType!R front;
+		Err!R err;
+		R cont;
 
-		auto u = i.front;
-		auto retr = i.save;
-		switch(u) {
-			// static foreach magic
-			foreach(v; V) {
-			case v:
-				retr.popFront;
-				return RT(retr, u);
+		this(R i) {
+			cont = i;
+			popFront;
+		}
+
+		void popFront() {
+			if (cont.empty) {
+				empty = true;
+				err = Err!R(expects, inv, [cont]);
+				return;
 			}
-			default:
-				return RT(Err!R(expects, false, i));
+
+			auto u = cont.front;
+			o:switch(u) {
+				// static foreach magic
+				foreach(v; V) {
+				case v:
+					empty = false;
+					front = u;
+					cont.popFront;
+					break o;
+				}
+				default:
+					empty = true;
+					err = Err!R(expects, inv, [cont]);
+					break;
+			}
 		}
 	}
-}
+	return Ch(i);
+}}
 
 /// Match any character except those in reject
+version(legacy)
 struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 	alias Char = ElementType!(typeof(reject));
 	enum string[] e = reject.map!"[a]".array;
@@ -150,7 +181,7 @@ struct not_ch(alias reject) if (is(ElementType!(typeof(reject)))) {
 /// Parse a sequences of digits, return an array of number
 template digit(string _digits) {
 	import std.string : indexOf;
-	alias digit = pipe!(ch!_digits, wrap!(ch => cast(int)_digits.indexOf(ch)));
+	alias digit = pmap!(ch!_digits, ch => cast(int)_digits.indexOf(ch));
 }
 
 immutable string lower = "qwertyuiopasdfghjklzxcvbnm";
@@ -166,10 +197,11 @@ immutable string digits = "0123456789";
 */
 template number(string accept = digits, int base = 10) if (accept.length == base) {
 	import std.algorithm.iteration;
-	alias number = pipe!(many!(digit!accept), wrap!((ref x) => x[].reduce!((a,b) => a*base+b)));
+	alias number = pfold!(digit!accept, (a, b) => a*base+b, 0);
 }
 
 ///
+version(legacy)
 unittest {
 	auto i = "12354";
 	auto rx = number!()(i);
@@ -187,9 +219,11 @@ unittest {
   Params:
 	accept = an array of acceptable characters
 */
+version(legacy)
 alias word(alias accept = alphabet) = many!(ch!accept);
 
 /// Parse an identifier, starts with a letter or _, followed by letter, _, or digits
+version(legacy)
 auto identifier(R)(in auto ref R i)
 if (isForwardRange!R) {
 	auto ret = ch!(alphabet~"_")(i);
@@ -206,6 +240,7 @@ if (isForwardRange!R) {
 }
 
 ///
+version(legacy)
 unittest {
 	auto i = "_asd1234a";
 	auto rx2 = identifier(i);
@@ -215,6 +250,7 @@ unittest {
 }
 
 /// Parse escaped character, \n, \r, \b, \" and \\
+version(legacy)
 auto parse_escape1(R)(in auto ref R i)
 if (isForwardRange!R) {
 	alias RT = Result!(R, dchar, Err!R);
@@ -245,6 +281,7 @@ if (isForwardRange!R) {
 }
 
 /// Parse a string enclosed by a pair of quotes, and containing escape sequence
+version(legacy)
 auto parse_string(R)(in auto ref R i)
 if (isForwardRange!R) {
 	alias RT = Result!(R, dchar[], Err!R);
@@ -260,6 +297,7 @@ if (isForwardRange!R) {
 }
 
 ///
+version(legacy)
 unittest {
 	auto i = "\"asdf\\n\\b\\\"\"";
 	auto r = parse_string(i);
@@ -269,9 +307,12 @@ unittest {
 }
 
 /// Skip white spaces
+version(legacy)
 alias whitespace = pipe!(choice!(token!" ", token!"\n", token!"\t"));
+version(legacy)
 alias ws(alias func) = pipe!(seq!(func, skip!whitespace), wrap!"a[0]");
 
+version(legacy)
 template token_ws(string t) {
 	auto token_ws(R)(in auto ref R i)
 	if (isForwardRange!R) {
@@ -280,6 +321,7 @@ template token_ws(string t) {
 }
 
 ///
+version(legacy)
 unittest {
 	const(char)[] i = " \n\t    ";
 	auto r = skip!whitespace(i);

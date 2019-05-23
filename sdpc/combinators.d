@@ -13,14 +13,15 @@ import std.traits,
        std.variant,
        std.experimental.allocator;
 import std.typecons : Tuple;
+import std.range : ElementType;
 
 import std.experimental.allocator.gc_allocator : GCAllocator;
 
 ///Match pattern `begin func end`, return the result of func.
-alias between(alias begin, alias func, alias end) = pipe!(seq!(discard!begin, func, discard!end), wrap!"move(a[1])");
+version(legacy) alias between(alias begin, alias func, alias end) = pipe!(seq!(discard!begin, func, discard!end), wrap!"move(a[1])");
 
 ///
-unittest {
+version(legacy) unittest {
 	import sdpc.parsers;
 	auto i = "(asdf)";
 	auto r = between!(token!"(", token!"asdf", token!")")(i);
@@ -28,110 +29,195 @@ unittest {
 	assert(!r.cont.length);
 }
 
-///Match any of the given pattern, stop when first match is found. All parsers
-///must return the same type.
-struct choice(T...) {
-	enum notVoid(T) = !is(T == void);
-	enum hasCombine(T) = is(typeof(T.init + T.init) == T);
-	static auto opCall(R)(in auto ref R i)
-	if (isForwardRange!R) {
-		alias GetDT(A) = A.DataType;
-		alias GetET(A) = A.ErrType;
-		alias PRS = ParserReturnTypes!(R, T);
-		alias PDT = staticMap!(GetDT, PRS);
-		alias PET = Filter!(notVoid, staticMap!(GetET, PRS));
-		static assert(allSameType!PET);
-		static assert(allSameType!PDT);
-		static assert(hasCombine!(PET[0]));
-		static if (hasCombine!(PET[0])) {
-			alias RT = Result!(R, PDT[0], PET[0]);
-			PET[0] err;
-		} else {
-			alias RT = Result!(R, PDT[0], PET[0][T.length]);
-			PET[0][T.length] err;
+/// Generate a new parser that applies `m` to outputs of parser `p`
+template pmap(alias p, alias m) {
+auto pmap(R)(in auto ref R i)
+if (isForwardRange!R) {
+	alias P = typeof(p(i));
+	static struct Pmap {
+		private P inner;
+		typeof(m(inner.front)) front;
+		@property bool empty() { return inner.empty; }
+		@property ref auto err() { return inner.err; }
+		@property ref R cont() { return inner.cont; }
+		void popFront() {
+			inner.popFront;
+			if (!inner.empty) {
+				front = m(inner.front);
+			}
 		}
-		foreach(id, p; T) {
-			auto ret = p(i);
-			if (ret.ok)
-				return RT(ret.cont, ret.v);
-			static if (is(typeof(ret.err))) {
-				static if (hasCombine!(PET[0])) {
-					static if (id == 0)
-						err = ret.err;
-					else
-						err = err + ret.err;
-				} else
-					err[id] = ret.err;
-			} else
-				assert(0);
+		this(R i) {
+			inner = p(i);
+			front = m(inner.front);
 		}
-		return RT(err);
 	}
-}
+	return Pmap(i);
+}}
+
+// Produce a parser that exhaust parse `p` and folds over its outputs.
+// if `allow_empty` is false, the result will be empty if `p` produce 0 output. Otherwise,
+// the result will always have 1 element.
+template pfold(alias p, alias func, alias seed, bool allow_empty = false){
+auto pfold(R)(in auto ref R i)
+if (isForwardRange!R) {
+	alias InnerRT = ElementType!(typeof(p(i)));
+	alias InnerET = typeof(p(i).err);
+	alias RT = typeof(binaryFun!func(seed, InnerRT.init));
+	static assert (is(typeof(seed) == RT), "return type of "~func~" should be the save as typeof(seed)");
+	static struct Pfold {
+		bool empty;
+		R cont;
+		RT front = seed;
+		InnerET err;
+		size_t length = 0;
+
+		this(R i) {
+			import std.algorithm : fold;
+			auto inner = p(i);
+			empty = inner.empty && !allow_empty;
+			// Could've used (&inner).fold here, but it fails
+			// to compile
+			while (!inner.empty) {
+				front = binaryFun!func(front, inner.front);
+				inner.popFront;
+			}
+			length = 1;
+			cont = inner.cont;
+			err = inner.err;
+		}
+		void popFront() { empty = true; }
+	}
+	return Pfold(i);
+}}
+
+/// Match one of the given pattern. Remembers the matching parser.
+/// Repeated invocation will keep invoking the parser matched the first time.
+template choice(T...) {
+auto choice(R)(in auto ref R i)
+if (isForwardRange!R) {
+	import std.range : iota;
+	alias GetP(alias A) = typeof(A(i));
+	alias InnerP = staticMap!(GetP, T);
+	alias GetDT(A) = typeof(A.init.front);
+	alias GetET(A) = typeof(A.init.err);
+	alias PDT = staticMap!(GetDT, InnerP);
+	alias PET = staticMap!(GetET, InnerP);
+	static assert(allSameType!PDT);
+	static assert(allSatisfy!(isParsingRange, InnerP));
+
+	static struct Choice {
+		private immutable int chosen;
+		private InnerP inner;
+		bool empty;
+		PET err;
+		R cont;
+
+		this(R i) {
+			cont = i;
+			empty = true;
+			foreach(id, p; T) {
+				auto ret = p(cont);
+				if (!ret.empty) {
+					empty = false;
+					cont = ret.cont;
+					chosen = id;
+					inner[id] = ret;
+					return;
+				}
+				err[id] = ret.err;
+			}
+		}
+
+		ref PDT[0] front() {
+			final switch(chosen) {
+			static foreach(i; 0..T.length) {
+			case i: {
+				return inner[i].front;
+			}}}
+		}
+		void popFront() {
+			o:final switch(chosen) {
+			static foreach(i; 0..T.length) {
+			case i: {
+				inner[i].popFront;
+				empty = inner[i].empty;
+				cont = inner[i].cont;
+				break o;
+			}}}
+		}
+
+	}
+	return Choice(i);
+}}
 
 /**
-  Match pattern `p delim p delim p ... p delim p`
-
-  Return data type will be an array of p's return data type
+  First invocation matches `p`. Following invocations matches `delim p`
 */
-struct chain(alias p, alias delim, bool allow_empty=false) {
-	static auto opCall(R)(in auto ref R i)
-	if (isForwardRange!R) {
-		import containers.dynamicarray : DynamicArray;
-		import std.experimental.allocator.common : stateSize;
-		import std.algorithm.mutation : move;
-		auto ret = p(i);
-		alias T = typeof(ret);
-		alias DT = typeof(delim(i));
-		alias RDT = Tuple!(T.DataType, DT.DataType);
-		alias RDTA = DynamicArray!(RDT, RCIAllocator*);
-		alias RT = Result!(R, RDTA, T.ErrType);
-		if (!ret.ok) {
-			static if (allow_empty)
-				return RT(i, []);
-			else
-				return RT(ret.err);
+template delimited(alias p, alias delim) {
+auto delimited(R)(in auto ref R i)
+if (isForwardRange!R) {
+	import std.typecons : Nullable, tuple, nullable;
+	alias T = ParserReturnTypes!(R, p);
+	alias DT = ParserReturnTypes!(R, delim);
+	alias TE = typeof(p(i).err);
+	alias DTE = typeof(delim(i).err);
+	alias RDT = Tuple!(T[0], Nullable!(DT[0]));
+	static assert(is(TE == DTE));
+	static struct Delimited {
+		bool empty;
+		RDT front;
+		R cont;
+		TE err;
+		this(R i) {
+			auto ret = p(i);
+			empty = ret.empty;
+			cont = ret.cont;
+			if (!ret.empty) {
+				front = tuple(ret.front, Nullable!(DT[0]).init);
+			} else {
+				err = ret.err;
+			}
 		}
+		void popFront() {
+			empty = true;
+			auto ret1 = delim(cont);
+			cont = ret1.cont;
+			if (ret1.empty) {
+				err = ret1.err;
+				return;
+			}
+			auto ret2 = p(cont);
+			cont = ret2.cont;
+			if (ret2.empty) {
+				err = ret2.err;
+				return;
+			}
 
-		auto res = RDTA(&theAllocator());
-		RDT tmp;
-		tmp[0] = ret.v;
-		res ~= tmp;
-
-		auto last_range = ret.cont;
-		while(true) {
-			auto dret = delim(last_range);
-			if (!dret.ok)
-				break;
-			tmp[1] = dret.v;
-			auto pret = p(dret.cont);
-			if (!pret.ok)
-				break;
-			tmp[0] = pret.v;
-			res ~= tmp;
-			last_range = pret.cont;
+			front = tuple(ret2.front, nullable(ret1.front));
+			empty = false;
 		}
-
-		return RT(last_range, move(res));
 	}
-}
+	return Delimited(i);
+}}
 
 ///
 unittest {
 	import sdpc.parsers;
 	import std.algorithm;
 
-	alias calc = pipe!(chain!(number!(), token!"+"), wrap!((ref x) => x[].fold!"a+b[0]"(0)));
+	alias calc = pfold!(delimited!(number!(), token!"+"), "a+b[0]", 0);
 	auto i = "1+2+3+4+5";
 	auto r = calc(i);
-	assert(r.ok);
-	assert(r.v == 15);
+	assert(!r.empty);
+	assert(r.front == 15);
+	assert(r.cont.empty);
 }
 
 /**
   Like `many_r` but with default `reduce` function that put all return
   values into an array, or return number of matches
 */
+version(legacy)
 struct many(alias func, bool allow_none = false) {
 	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
@@ -170,17 +256,20 @@ struct many(alias func, bool allow_none = false) {
 ///
 unittest {
 	import sdpc.parsers;
-	auto i = "abcdaaddcc";
-	alias abcdparser = many!(choice!(token!"a", token!"b", token!"c", token!"d"));
+	import std.array : array;
+	auto i = "aabcdaaddcc";
+	alias abcdparser = choice!(token!"a", token!"b", token!"c", token!"d");
 	auto r2 = abcdparser(i);
-	assert(r2.ok);
-	assert(!r2.cont.length);
+	assert(!r2.empty);
+	assert(r2.array.length == 2); // only matches the first two 'a's
 
+	/*
 	i = "abcde";
 	auto r3 = abcdparser(i);
 	assert(r3.ok); //Parse is OK because 4 char are consumed
 	assert(r3.v.length == 4);
 	assert(r3.cont.length); //But the end-of-buffer is not reached
+	*/
 }
 
 /**
@@ -191,6 +280,7 @@ unittest {
   the parsers, use `Result.v.v!index`, where `index` is the
   index of the desired parser in `T`.
 */
+version(legacy)
 struct seq(T...) {
 	enum notVoid(T) = !is(T == void);
 	private static string genParserCalls(int n) {
@@ -224,6 +314,7 @@ struct seq(T...) {
 }
 
 ///
+version(legacy)
 unittest {
 	import sdpc.parsers;
 	auto i = "abcde";
@@ -244,6 +335,7 @@ unittest {
 
   Return data type will be a Nullable of `p`'s data type
 */
+version(legacy)
 struct optional(alias p) {
 	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
@@ -259,6 +351,7 @@ struct optional(alias p) {
 }
 
 ///
+version(legacy)
 unittest {
 	import sdpc.parsers;
 
@@ -273,6 +366,7 @@ unittest {
 }
 
 /// Match `u` but doesn't consume anything from the input range
+version(legacy)
 struct lookahead(alias u, bool negative = false){
 	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
@@ -293,6 +387,7 @@ struct lookahead(alias u, bool negative = false){
 	}
 }
 
+version(legacy)
 struct span(alias p) {
 	static auto opCall(R)(in auto ref R i)
 	if (isForwardRange!R) {
@@ -304,6 +399,7 @@ struct span(alias p) {
 }
 
 ///
+version(legacy)
 unittest {
 	import sdpc.parsers;
 
@@ -320,8 +416,11 @@ unittest {
 }
 
 ///Skip `p` zero or more times
+version(legacy)
 alias skip(alias p) = discard_err!(discard!(many!(discard!p, true)));
 
 ///Match `p` but discard the result
+version(legacy)
 alias discard(alias p) = pipe!(p, wrap!((ref _) { }));
+version(legacy)
 alias discard_err(alias p) = pipe!(p, wrap_err!((ref _) { }));

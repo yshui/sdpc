@@ -48,7 +48,7 @@ unittest {
 */
 template ParserReturnTypes(R, T...) {
 	static if (T.length == 1)
-		alias ParserReturnTypes = AliasSeq!(typeof(T[0](R.init)));
+		alias ParserReturnTypes = AliasSeq!(ElementType!(typeof(T[0](R.init))));
 	else
 		alias ParserReturnTypes = AliasSeq!(ParserReturnTypes!(R, T[0..$/2]), ParserReturnTypes!(R,  T[$/2..$]));
 }
@@ -56,6 +56,12 @@ template ParserReturnTypes(R, T...) {
 // relax requirement of forward range
 enum bool isForwardRange(R) = isInputRange!R
     && is(Unqual!(ReturnType!((R r) => r.save)) == Unqual!R);
+
+/// Whether a range is a parsing range. In addition to an input range,
+/// a parsing range also has a memeber `err` representing parsing errors,
+/// and a member `cont` representing its position in the input.
+enum bool isParsingRange(R) = isInputRange!R
+    && is(typeof(R.init.err)) && isInputRange!(typeof(R.init.cont));
 
 /**
   Utility function for generate a tuple of `EnumeratePair` from an
